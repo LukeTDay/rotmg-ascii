@@ -1,2 +1,2 @@
-json
 requests
+windows-curses; platform_system=="Windows"
