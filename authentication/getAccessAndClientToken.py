@@ -1,11 +1,14 @@
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Union, Literal
 from Constants import ApiPoints
 from hashlib import md5
 
 import requests
 import re
 
-def getAccessAndClientToken(accountDict : Dict[str,str]) -> Tuple[bool,Tuple[str,str]]:
+TokenSuccess = Tuple[Literal[True], Tuple[str, str]]
+TokenFailure = Tuple[Literal[False], str]
+
+def getAccessAndClientToken(accountDict : Dict[str,str]) -> Union[TokenSuccess, TokenFailure]:
     alias     : str = accountDict["alias"]
     email     : str = accountDict["email"]
     password  : str = accountDict["password"]
