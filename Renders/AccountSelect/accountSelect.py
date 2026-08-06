@@ -1,12 +1,27 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 
-import curses
+import curses, json
 
 
 def drawAccountSelect(stdscr : curses.window, ctx) -> Screen:
 
-    storedAccounts = credential_loader()
+    try:
+        storedAccounts = credential_loader()
+    except json.JSONDecodeError as e: 
+        stdscr.erase()
+        stdscr.addstr(0,0,"There was an error deocoding your JSON folder")
+        stdscr.addstr(1,0,"Please reference the README for help")
+        stdscr.addstr(3,0,f"Error: {e}")
+        stdscr.addstr(5,0,"Please enter any key to exit.")
+        stdscr.refresh()
+        stdscr.getch()
+        return Screen.exit
+    except FileNotFoundError:
+        return Screen.enterAccountInfo
+    if len(storedAccounts) == 0:
+        return Screen.enterAccountInfo
+    
     selected = 0
     scrollOffset = 0
 
