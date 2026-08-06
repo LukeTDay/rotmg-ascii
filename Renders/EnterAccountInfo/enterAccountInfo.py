@@ -1,5 +1,5 @@
 from Constants.Screen import Screen
 
 
-def draw_game(stdscr, ctx) -> Screen:
+def enterAccountInfo(stdscr, ctx) -> Screen:
     pass
