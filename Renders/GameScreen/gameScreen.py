@@ -1,5 +1,7 @@
 from Constants.Screen import Screen
 
+import curses
 
-def drawGame(stdscr, ctx) -> Screen:
+
+def drawGame(stdscr : curses.window, ctx) -> Screen:
     pass
