@@ -1,5 +1,7 @@
 from Constants.Screen import Screen
 
+import curses
 
-def drawCharSelect(stdscr, ctx) -> Screen:
+
+def drawCharSelect(stdscr : curses.window, ctx) -> Screen:
     pass
