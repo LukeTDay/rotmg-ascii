@@ -2,26 +2,32 @@ from Utils.json.accCredLoader import credential_loader
 
 from authentication.getAccessAndClientToken import getAccessAndClientToken
 
-from renders.accountSelect.accountSelect import draw_account_select
-from renders.login.login import draw_login
-from renders.charSelect.charSelect import draw_char_select
-from renders.gameScreen.gameScreen import draw_game
+from Renders.AccountSelect.accountSelect import drawAccountSelect
+from Renders.Login.login import drawLogin
+from Renders.CharSelect.charSelect import drawCharSelect
+from Renders.GameScreen.gameScreen import drawGame
+from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
 
 from Constants.Screen import Screen
 
 import curses
 
-#accounts = credential_loader()
 #accessToken,clientToken = getAccessAndClientToken(accounts[0])[1]
 
-def main(stdscr):
+def main(stdscr : curses.window):
+    curses.curs_set(0) # Makes the cursor disappear
+    curses.start_color()
+    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    stdscr.bkgd(" ", curses.color_pair(1))
+
     screen = Screen.accountSelect
     ctx = {}  # shared data screens pass forward
     handlers = {
-        Screen.accountSelect: draw_account_select,
-        Screen.login: draw_login,
-        Screen.charSelect: draw_char_select,
-        Screen.gameScreen: draw_game,
+        Screen.accountSelect: drawAccountSelect,
+        Screen.enterAccountInfo: enterAccountInfo,
+        Screen.login: drawLogin,
+        Screen.charSelect: drawCharSelect,
+        Screen.gameScreen: drawGame,
     }
     while screen != Screen.exit:
         stdscr.erase()
