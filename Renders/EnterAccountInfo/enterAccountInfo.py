@@ -272,6 +272,7 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
     os.replace(tempLoc.name, "Credentials/account_credentials.json")
 
     return Screen.accountSelect
+
 def determineRefreshWindow(stdscr : curses.window,
                            pad : curses.window,
                            yIndex : int) -> None:
