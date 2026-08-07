@@ -219,3 +219,6 @@ __marimo__/
 
 # Ignoring json files because they contain user info
 *.json
+
+# Personal Claude Code instructions, not shared with the team
+CLAUDE.local.md
