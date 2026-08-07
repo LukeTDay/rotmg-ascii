@@ -2,7 +2,7 @@ from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from authentication.getAccessAndClientToken import getAccessAndClientToken
 
-import curses, json, time
+import curses, json, time, os, tempfile
 from typing import List
 
 
@@ -10,7 +10,7 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
     try:
         storedAccounts = credential_loader()
     except FileNotFoundError:
-        storedAccounts = {}
+        storedAccounts = []
 
     stdscr.erase()
     pad = curses.newpad(100,100)
@@ -29,8 +29,10 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
     # select screen
     if canSelect:
         pad.addstr(yIndex,0,"If you would like to exit and select an already stored account please press ESC")
+        determineRefreshWindow(stdscr,pad,yIndex)
         yIndex += 1
         pad.addstr(yIndex,0,"**If your account_credentials.json does not exist or is empty you will be redirected back here directly**")
+        determineRefreshWindow(stdscr,pad,yIndex)
         yIndex += 2
 
     #In the case that passwords do not match will need to use this variable
@@ -57,6 +59,7 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
         if email == None and not canSelect:
             yIndex += 1
             pad.addstr(yIndex, 0, "You do not have any other accounts stored you must input a new one")
+            determineRefreshWindow(stdscr,pad,yIndex)
             time.sleep(2)
             continue
         #Mostly added these so pylance would stop whining
@@ -139,6 +142,91 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
         else:
             buf.append(".")
 
+        break #Break for now to add things after verification
+
+    yIndex += 2
+    currYIndex = yIndex
+    while True:
+        yIndex = currYIndex
+        pad.move(yIndex,0)
+        pad.clrtobot()
+
+        alias = getAlias(
+            stdscr=stdscr,
+            pad=pad,
+            yIndex=yIndex,
+            xIndex=0
+        )
+        if alias == "":
+            yIndex += 1
+            pad.addstr(yIndex, 0, "Cannot use an empty alias.")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            time.sleep(2)
+            continue
+
+        if alias is not None:
+            shouldRecreate = False
+            for account in storedAccounts:
+                if account["alias"] == alias:
+                    yIndex += 1
+                    pad.addstr(yIndex,0,f"{alias} is already in use. You must choose another one")
+                    determineRefreshWindow(stdscr,pad,yIndex)
+                    time.sleep(2)
+                    shouldRecreate = True
+                    break
+            if shouldRecreate:
+                continue
+            break
+
+        if len(storedAccounts) == 0:
+            yIndex += 1
+            pad.addstr(yIndex, 0, "As you do not have any other accounts, you must choose an alias for this one.")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            time.sleep(2)
+            continue
+        return Screen.accountSelect
+
+    newEntry = {
+        "alias" : alias,
+        "email" : email,
+        "password" : password
+    }
+    storedAccounts.append(newEntry)
+
+    #Storing the accounts in the credentials folder
+    dirExists = os.path.isdir("Credentials/")
+    if not dirExists:
+        try:
+            os.mkdir("Credentials")
+        except PermissionError:
+            yIndex += 2
+            pad.addstr(yIndex,0,"Credentials directory does not exist and insufficient "
+            "permission to create a new one. Please create the directory yourself or run "
+            "the program with higher authority.")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            yIndex += 1
+            pad.addstr(yIndex,0,"Enter to exit.")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            pad.getch()
+            return Screen.exit
+        except Exception as e:
+            yIndex += 2
+            pad.addstr(yIndex,0,"Unexpected error occured when trying to create a directory to store the credentials.")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            yIndex += 1
+            pad.addstr(yIndex,0,f"Error {e}")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            yIndex += 1
+            pad.addstr(yIndex,0,"Press enter to exit.")
+            determineRefreshWindow(stdscr,pad,yIndex)
+            return Screen.exit
+        
+    tempLoc = tempfile.NamedTemporaryFile(mode="w",dir="Credentials/", delete=False, encoding="utf-8")
+    json.dump(storedAccounts,tempLoc, indent=4)
+    tempLoc.close()
+    os.replace(tempLoc.name, "Credentials/account_credentials.json")
+
+    return Screen.accountSelect
 def determineRefreshWindow(stdscr : curses.window,
                            pad : curses.window,
                            yIndex : int) -> None:
@@ -197,6 +285,31 @@ def getEmail(stdscr : curses.window,
         pad.move(yIndex, xIndex)
         pad.clrtobot()
         pad.addstr(yIndex, xIndex, f"Please enter your email: {''.join(buf)}")
+        determineRefreshWindow(stdscr,pad,yIndex)
+    return ''.join(buf)
+
+def getAlias(stdscr : curses.window,
+                pad : curses.window,
+                yIndex : int,
+                xIndex : int) -> str | None:
+    pad.addstr(yIndex, xIndex, "Please enter the alias of this account: ")
+    determineRefreshWindow(stdscr,pad,yIndex)
+
+    buf = []
+    while True:
+        ch = pad.getch()
+        if ch in (curses.KEY_ENTER, ord('\n')):
+            break
+        elif ch == 27:
+            return None
+        elif ch in (curses.KEY_BACKSPACE, 127):
+            if buf:
+                buf.pop()
+        else:
+            buf.append(chr(ch))
+        pad.move(yIndex, xIndex)
+        pad.clrtobot()
+        pad.addstr(yIndex, xIndex, f"Please enter the alias of this account: {''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
     return ''.join(buf)
 
