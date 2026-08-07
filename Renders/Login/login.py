@@ -111,9 +111,7 @@ def drawLogin(stdscr : curses.window, ctx) -> Screen:
             pad.addstr(yIndex,0,f"Error: {result[2]}")
         elif result[0]:
             pad.addstr(yIndex, 0, f"Recevied {result[1]}")
-            ctx[result[1]] = parseServersXML(result[2])
-            #yIndex += 1
-            #pad.addstr(yIndex, 0, f"Data {result[2].text}")
+            parseHandler(ctx, result)
         determineRefreshWindow(stdscr,pad,yIndex)
         
 
@@ -129,7 +127,16 @@ def checkThreads(threadList : List[threading.Thread]) -> bool:
     return result
 
 
-    
+def parseHandler(ctx, result) -> None:
+    match result[1]:
+        case "FRIENDSLIST":
+            pass
+        case "GUILDMEMBERS":
+            pass
+        case "CHARLIST":
+            pass
+        case "SERVERS":
+            ctx["SERVERS"] = parseServersXML(result[2])
 
 def gatherData(ctx : Dict[str,str],
                queue : queue.Queue) -> List[threading.Thread]:
