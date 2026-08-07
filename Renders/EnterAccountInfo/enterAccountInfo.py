@@ -2,7 +2,7 @@ from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from authentication.getAccessAndClientToken import getAccessAndClientToken
 
-import curses, json, time, os, tempfile
+import curses, json, time, os, tempfile, threading, queue
 from typing import List
 
 
@@ -122,27 +122,66 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
     # If they do prompt for an alias and save the account to the json file
     # If it does not notify the user and then recall this module
     yIndex += 2
-    buf: List[str] = []
-    while True:
-        if email is None:
-            raise RuntimeError("Email is None. This should not be possible")
-        if password is None:
-            raise RuntimeError("Password is None. This should not be possible")
+
+    resultQueue = queue.Queue()
+
+    if email is None:
+        raise RuntimeError("Email is None. This should not be possible")
+    if password is None:
+        raise RuntimeError("Password is None. This should not be possible")
+    
+    credentialDict = {
+        "email" : email,
+        "password"  : password
+    }
+
+    thread = threading.Thread(target=verifyWorker, args=(credentialDict, resultQueue), daemon=True)
+    thread.start()
+
+    buf : List[str] = []
+    while thread.is_alive():
         pad.move(yIndex,0)
         pad.clrtobot()
         pad.addstr(yIndex,0,f"Verifying ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
-        credentialDict = {
-            "email" : email,
-            "password"  : password
-        }
         time.sleep(0.25)
         if len(buf) == 5:
             buf = []
         else:
             buf.append(".")
 
-        break #Break for now to add things after verification
+    success = resultQueue.get()
+
+    if not success[0]:
+        errReason = success[1]
+        errText = success[2]
+        if errReason == "TOKEN_ERROR":
+            yIndex += 1
+            pad.addstr(yIndex,0, "There was an issue loading your token")
+            yIndex += 1
+            pad.addstr(yIndex,0,f"Error Message: {errText}")
+            determineRefreshWindow(stdscr,pad,yIndex)
+        elif errReason == "VERIFY_TOKEN_ERROR":
+            yIndex += 1
+            pad.addstr(yIndex,0, "There was an issue verifying your token")
+            yIndex += 1
+            pad.addstr(yIndex,0,f"Error Message: {errText}")
+            determineRefreshWindow(stdscr,pad,yIndex)
+        elif errReason == "UNEXPECTED_ERROR":
+            yIndex += 1
+            pad.addstr(yIndex,0, "There was an unexpected error")
+            yIndex += 1
+            pad.addstr(yIndex,0,f"Error Message: {errText}")
+            determineRefreshWindow(stdscr,pad,yIndex)
+        yIndex += 2
+        pad.addstr(yIndex,0,"Please press any key to try again.")
+        determineRefreshWindow(stdscr,pad,yIndex)
+        pad.getch()
+        return Screen.enterAccountInfo
+    
+    yIndex += 2
+    pad.addstr(yIndex,0, "Account successfully verified.")
+    determineRefreshWindow(stdscr,pad,yIndex)
 
     yIndex += 2
     currYIndex = yIndex
@@ -313,7 +352,12 @@ def getAlias(stdscr : curses.window,
         determineRefreshWindow(stdscr,pad,yIndex)
     return ''.join(buf)
 
-
+def verifyWorker(credentialDict, resultQueue) -> None:
+    try:
+        outcome = getAccessAndClientToken(credentialDict)
+    except Exception as e:
+        outcome = (False, "UNEXPECTED_ERROR", f"Unexpected error: {e}")
+    resultQueue.put(outcome)
 
     
 
