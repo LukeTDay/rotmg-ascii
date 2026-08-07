@@ -13,8 +13,9 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
         storedAccounts = []
 
     stdscr.erase()
-    pad = curses.newpad(100,100)
+    pad = curses.newpad(100,150)
     pad.keypad(True)
+    pad.clrtobot()
 
     #Keeping track of yIndex so that it can be updated dynamically
     yIndex = 0
@@ -34,6 +35,11 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
         pad.addstr(yIndex,0,"**If your account_credentials.json does not exist or is empty you will be redirected back here directly**")
         determineRefreshWindow(stdscr,pad,yIndex)
         yIndex += 2
+    if not canSelect:
+        pad.addstr(yIndex,0, "You do not have any accounts stored.")
+        yIndex += 1
+        pad.addstr(yIndex, 0, "You must input an account to move forward")
+        determineRefreshWindow(stdscr,pad,yIndex)
 
     #In the case that passwords do not match will need to use this variable
     # as an anchor of where the passwords section started
@@ -156,19 +162,19 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
         errReason = success[1]
         errText = success[2]
         if errReason == "TOKEN_ERROR":
-            yIndex += 1
+            pad.clrtobot()
             pad.addstr(yIndex,0, "There was an issue loading your token")
             yIndex += 1
-            pad.addstr(yIndex,0,f"Error Message: {errText}")
+            pad.addstr(yIndex,0,f"Incorrect email or password")
             determineRefreshWindow(stdscr,pad,yIndex)
         elif errReason == "VERIFY_TOKEN_ERROR":
-            yIndex += 1
+            pad.clrtobot()
             pad.addstr(yIndex,0, "There was an issue verifying your token")
             yIndex += 1
             pad.addstr(yIndex,0,f"Error Message: {errText}")
             determineRefreshWindow(stdscr,pad,yIndex)
         elif errReason == "UNEXPECTED_ERROR":
-            yIndex += 1
+            pad.clrtobot()
             pad.addstr(yIndex,0, "There was an unexpected error")
             yIndex += 1
             pad.addstr(yIndex,0,f"Error Message: {errText}")
@@ -179,7 +185,7 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
         pad.getch()
         return Screen.enterAccountInfo
     
-    yIndex += 2
+    pad.clrtobot()
     pad.addstr(yIndex,0, "Account successfully verified.")
     determineRefreshWindow(stdscr,pad,yIndex)
 
