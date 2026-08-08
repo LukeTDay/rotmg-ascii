@@ -101,7 +101,7 @@ def drawLogin(stdscr : curses.window, ctx) -> Screen:
             buf = []
         else:
             buf.append(".")
-
+    moveOn = True
     for x in range(len(threadList)):
         yIndex += 2
         result = groupQueue.get()
@@ -109,10 +109,20 @@ def drawLogin(stdscr : curses.window, ctx) -> Screen:
             pad.addstr(yIndex,0,f"There was an error receiving {result[1]}")
             yIndex += 1
             pad.addstr(yIndex,0,f"Error: {result[2]}")
+            moveOn = False
         elif result[0]:
             pad.addstr(yIndex, 0, f"Recevied {result[1]}")
             parseHandler(ctx, result)
         determineRefreshWindow(stdscr,pad,yIndex)
+
+    if moveOn:
+        return Screen.charSelect
+    else:
+        yIndex += 2
+        pad.addstr(yIndex,0,"There was an error when fetching information about your account. Exiting to account selection")
+        determineRefreshWindow(stdscr,pad,yIndex)
+        time.sleep(3)
+        return Screen.accountSelect
         
 
     
