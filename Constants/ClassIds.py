@@ -20,3 +20,36 @@ KENSEI = 818
 DRUID = 819
 
 ALL = [ROGUE, ARCHER, WIZARD, PRIEST, WARRIOR, KNIGHT, PALADIN, ASSASSIN, NECROMANCER, HUNTRESS, MYSTIC, TRICKSTER, SORCERER, NINJA, SAMURAI, BARD, SUMMONER, KENSEI, DRUID]
+
+ID_TO_CLASS = {
+    ROGUE: "Rogue",
+    ARCHER: "Archer",
+    WIZARD: "Wizard",
+    PRIEST: "Priest",
+    WARRIOR: "Warrior",
+    KNIGHT: "Knight",
+    PALADIN: "Paladin",
+    ASSASSIN: "Assassin",
+    NECROMANCER: "Necromancer",
+    HUNTRESS: "Huntress",
+    MYSTIC: "Mystic",
+    TRICKSTER: "Trickster",
+    SORCERER: "Sorcerer",
+    NINJA: "Ninja",
+    SAMURAI: "Samurai",
+    BARD: "Bard",
+    SUMMONER: "Summoner",
+    KENSEI: "Kensei",
+    DRUID: "Druid",
+}
+
+CLASS_TO_ID = {className: classId for classId, className in ID_TO_CLASS.items()}
+
+
+def idToClass(classId: int) -> str | None:
+    return ID_TO_CLASS.get(classId)
+
+
+def classToId(className: str) -> int | None:
+    return CLASS_TO_ID.get(className)
+
