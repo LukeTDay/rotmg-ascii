@@ -3,6 +3,7 @@ from Constants.ApiPoints import *
 
 from Utils.XML.parseServersXML import parseServersXML
 from Utils.XML.parseCharList import parseCharList
+from Utils.XML.parseFriendsList import parseFriendsList
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, verifyWorker
 
@@ -128,7 +129,7 @@ def checkThreads(threadList : List[threading.Thread]) -> bool:
 def parseHandler(ctx, result) -> None:
     match result[1]:
         case "FRIENDSLIST":
-            pass
+            ctx["FRIENDSLIST"] = parseFriendsList(result[2])
         case "GUILDMEMBERS":
             pass
         case "CHARLIST":
