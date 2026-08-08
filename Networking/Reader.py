@@ -47,7 +47,7 @@ class Reader:
         return value
 
     def readStr(self):
-        strLen = self.readShort()
+        strLen = self.readUnsignedShort()
         string = struct.unpack("!{}s".format(strLen), self.buffer[self.index:self.index+strLen])[0]
         self.index += strLen
         if isinstance(string, bytes):
@@ -83,6 +83,23 @@ class Reader:
         if isNegative:
             return -value
         
+        return value
+
+    def skipBytes(self, length):
+        """Advances the index by length without reading/copying anything - for
+        skipping fixed-size records nothing needs decoded."""
+        self.index += length
+
+    def skipStr(self):
+        """Advances past a length-prefixed string without decoding it - for hot
+        paths that need to stay in sync with the reader but don't care about
+        the value."""
+        strLen = self.readUnsignedShort()
+        self.index += strLen
+
+    def readRawBytes(self, length):
+        value = bytes(self.buffer[self.index:self.index+length])
+        self.index += length
         return value
 
     def bytesAvailable(self):

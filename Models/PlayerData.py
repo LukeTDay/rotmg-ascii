@@ -158,7 +158,7 @@ class PlayerData:
                 self.xpBoosted = stat.statValue == 1
             elif stat.statType == StatTypes.XPTIMERSTAT:
                 self.xpBoostTime = stat.statValue
-            elif stat.statType == StatTypes.TEXTURESTAT:
+            elif stat.statType == StatTypes.SKINID:
                 self.texture = stat.statValue
             elif stat.statType == StatTypes.FORTUNETOKENSTAT:
                 self.fortuneTokens = stat.statValue
@@ -178,7 +178,7 @@ class PlayerData:
                 self.exaltedMp = stat.statValue
             elif stat.statType == StatTypes.EXALTEDATK:
                 self.exaltedAtk = stat.statValue
-            elif stat.statType == StatTypes.EXALTEDDEFENSE:
+            elif stat.statType == StatTypes.EXALTEDDEF:
                 self.exaltedDefense = stat.statValue
             elif stat.statType == StatTypes.EXALTEDSPD:
                 self.exaltedSpd = stat.statValue
@@ -188,7 +188,7 @@ class PlayerData:
                 self.exaltedWis = stat.statValue
             elif stat.statType == StatTypes.EXALTEDVIT:
                 self.exaltedVit = stat.statValue
-            elif stat.statType == StatTypes.EXALTATIONBONUSDMG:
+            elif stat.statType == StatTypes.EXALTATIONBONUSDAMAGE:
                 self.exaltationBonusDmg = stat.statValue/1000
             elif stat.statType == StatTypes.EXALTATIONICREDUCTION:
                 self.exaltationICReduction = stat.statValue

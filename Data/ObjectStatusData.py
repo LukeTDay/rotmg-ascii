@@ -1,3 +1,5 @@
+from typing import List
+
 from .WorldPosData import *
 from .StatData import *
 
@@ -16,6 +18,9 @@ class ObjectStatusData:
     def read(self, reader):
         self.objectId = reader.readCompressedInt()
         self.pos.read(reader)
+
+        self.stats : List[StatData] = []
+
         stats_len = reader.readCompressedInt()
         for i in range(stats_len):
             stat = StatData()

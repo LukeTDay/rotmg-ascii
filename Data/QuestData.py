@@ -21,6 +21,9 @@ class QuestData:
         self.category = reader.readInt32()
         self.type = reader.readInt32()
 
+        self.itemsNeeded = []
+        self.rewards = []
+
         num_items_needed = reader.readShort()
         for i in range(num_items_needed):
             self.itemsNeeded.append(reader.readInt32())

@@ -8,7 +8,7 @@ Your primary purpose in this project is research and minimal tasks — investiga
 
 ## What this is
 
-A terminal-based ASCII client for Realm of the Mad God (rotmg-ascii). It authenticates against the real RotMG account API, pulls the player's char/friends/guild/server data, and renders it through a `curses`-based UI. The actual in-game networking/rendering (`Renders/GameScreen/gameScreen.py`) is not yet implemented — it's a stub — though `Models/PlayerData.py`, `Models/CharData.py`, `Models/ConditionEffect.py`, and the `Constants/PacketIds.py` / `Constants/GameIds.py` / `Constants/StatusEffects.py` scaffolding show the direction: a future packet-parsing layer for the live game protocol (per the README, "powered by a pyrelay headless connection" — not yet wired in or in `requirements.txt`).
+A terminal-based ASCII client for Realm of the Mad God (rotmg-ascii). It authenticates against the real RotMG account API, pulls the player's char/friends/guild/server data, and renders it through a `curses`-based UI. The packet-decoding layer for the live game protocol (`Networking/Packets/`, `Data/`, `Crypto/`) is ported and in place; what's not yet implemented is the live socket connection itself — `Networking/Listener.py`, `Networking/Sender.py`, and `Networking/Ticker.py` (wired into `Renders/GameScreen/gameScreen.py` and `Models/Context.py`'s `ctx["LISTENER"]`/`["SENDER"]`/`["TICKER"]`/`["INCOMINGQUEUE"]`/`["OUTGOINGQUEUE"]`) are still empty stubs.
 
 ## Running
 
@@ -51,6 +51,20 @@ Screens that hit the network (`Renders/Login/login.py`, `Renders/EnterAccountInf
 ### Credentials
 
 Stored locally at `Credentials/account_credentials.json` (gitignored — the repo ships `account_credentials.jsonEXAMPLE` as the template) and loaded via `Utils/json/accCredLoader.py`. `enterAccountInfo.py` writes new entries with a tempfile-then-`os.replace` pattern for an atomic write, not a direct overwrite.
+
+### Game protocol packet layer (`Networking/Packets/`, `Data/`, `Crypto/`)
+
+This layer was ported wholesale from two external sibling projects (local checkouts, not submodules — `pyrelay/` currently sits untracked inside this repo as leftover source material): first from `pyrelay` (a Python RotMG bot library), then re-ported from `rotmg_mitm_py` (a MITM proxy project with a more current packet list — 137 packet classes vs pyrelay's 102, including party/enchanting/blacksmith/crucible/chest-reward/mission/stasis packets pyrelay never added). When pulling in more packet coverage from an external source in the future, prefer whatever's most current over pyrelay specifically.
+
+Packet registration is fully dynamic — dropping a new file into `Networking/Packets/Incoming/` or `Outgoing/` is enough to wire it up, no manual registration step:
+- `Incoming/__init__.py` / `Outgoing/__init__.py` `importlib`-import every `.py` file in their directory and expose the class of the same name (a file `PingPacket.py` must define class `PingPacket`).
+- `Networking/Packets/PacketTypes.py` then builds a `packet_dict` from those modules by stripping `"Packet"` off each class name and upper-casing it (`PingPacket` → `"PING"`), keyed against `Constants/PacketIds.py`'s `idToType` map.
+- `Networking/PacketHelper.py`'s `createPacket(packetType)` is the single entry point for instantiating a packet by its `idToType` string name; `Networking/Reader.py`/`Writer.py` handle the binary framing (`readCompressedInt`, `readStr`, etc.) each packet's `read`/`write` methods call into.
+- A handful of `Constants/PacketIds.py` entries (pet/arena packets — `DELETEPET`, `ENTERARENA`, `HATCHPET`, etc.) have no corresponding packet class in either source project; `createPacket` will raise `ValueError` if one is ever actually received.
+
+`Constants/StatTypes.py` was hand-merged rather than straight-copied from `rotmg_mitm_py`: that project's enum renames/adds many stat IDs but leaves 3 gaps (`HEALTHPOTIONSTACKSTAT`=69, `MAGICPOTIONSTACKSTAT`=70, `HASBACKPACKSTAT`=79) that `Models/PlayerData.py` already depended on, so those 3 were backfilled under their original names rather than dropped. `Data/StatData.py` deliberately does **not** carry over `rotmg_mitm_py`'s `readIfRelevant()`/`RELEVANT_STAT_TYPES` optimization (that project is a proxy that only decodes stats its own plugins care about) — this client needs every stat for real game-state rendering, so `StatData.read()` always fully decodes.
+
+`Crypto/RC4.py` implements the RC4 stream cipher (KSA + PRGA) that RotMG's protocol is encrypted with; `Crypto/rotmg_keys.py` holds the two hardcoded hex keys (`OUTGOING_KEY`/`INCOMING_KEY`) it's seeded with — these are RotMG's own published protocol keys, not a project secret.
 
 ### Class IDs
 

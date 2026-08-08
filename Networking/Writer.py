@@ -73,6 +73,10 @@ class Writer:
             uByte |= 128*(value>0)
             self.writeUnsignedByte(uByte)
 
+    def writeRawBytes(self, data):
+        self.index += len(data)
+        self.buffer.extend(data)
+
     def writeHeader(self, packetId):
         sizeBytes = struct.pack("!i", self.index)
         for idx, byte in enumerate(sizeBytes):

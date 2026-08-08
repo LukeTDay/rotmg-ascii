@@ -16,8 +16,5 @@ class FameData:
         writer.writeCompressedInt(self.rank)
         writer.writeCompressedInt(self.fame)
 
-    def clone(self):
-        return StatData(self.statType, self.statValue, self.strStatValue, self.secondaryValue)
-
     def __str__(self):
         return f"{self.name}-{self.rank} {self.fame}"

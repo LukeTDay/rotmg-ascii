@@ -5,7 +5,7 @@ class WorldPosData:
         self.y = y
 
     def distTo(self, a, b=None):
-        if isinstance(a, self):
+        if isinstance(a, WorldPosData):
             return self.dist(a)
         elif not b is None:
             return ((self.x-a)**2 + (self.y-b)**2)**0.5
