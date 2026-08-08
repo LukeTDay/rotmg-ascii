@@ -19,28 +19,27 @@ def drawGame(stdscr : curses.window, ctx : Context) -> Screen:
 
     
     if ctx.get("LISTENER") is None:
+        outgoingQueue = queue.Queue()
+        ctx["OUTGOINGQUEUE"] = outgoingQueue
+
+        incomingQueue = queue.Queue()
+        ctx["INCOMINGQUEUE"] = incomingQueue
+
         #This 
         ticker = Ticker()
         tickerThread = threading.Thread(target=ticker.start, daemon=True)
         tickerThread.start()
         ctx["TICKER"] = ticker
 
-        #This will listen on an open socket, take packets and 
         listener = Listener()
         listenerThread = threading.Thread(target=listener.start, daemon=True)
         listenerThread.start()
         ctx["LISTENER"] = listener
 
-        incomingQueue = queue.Queue()
-        ctx["INCOMINGQUEUE"] = incomingQueue
-
         sender = Sender()
         senderThread = threading.Thread(target=sender.start, daemon=True)
         senderThread.start()
         ctx["SENDER"] = sender
-
-        outgoingQueue = queue.Queue()
-        ctx["OUTGOINGQUEUE"] = outgoingQueue
 
 
 
