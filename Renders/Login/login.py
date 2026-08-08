@@ -7,7 +7,7 @@ from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, verifyWorker
-from Models.Context import Context
+from Models.Context import Context, required
 
 import curses, threading, queue, time, requests,os
 from typing import List
@@ -33,10 +33,10 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     determineRefreshWindow(stdscr,pad,yIndex)
 
     #Loading the account so that it can be verified
-    currentAccount = ctx["account"]
+    currentAccount = required(ctx.get("account"), "account")
 
     resultQueue = queue.Queue()
-    tokenThread = threading.Thread(target=verifyWorker, args=(ctx["account"], resultQueue), daemon=True)
+    tokenThread = threading.Thread(target=verifyWorker, args=(currentAccount, resultQueue), daemon=True)
     tokenThread.start()
 
     buf : List[str] = []
@@ -162,28 +162,28 @@ def gatherData(ctx : Context,
 
 def gatherFriend(ctx : Context, queue : queue.Queue):
     try:
-        outcome = requests.post(url=FRIENDSLIST, params={"accessToken" : ctx["accessToken"]})
+        outcome = requests.post(url=FRIENDSLIST, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
         outcome = (False, FRIENDSLIST, "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "FRIENDSLIST", outcome))
 
 def gatherGuild(ctx : Context, queue : queue.Queue):
     try:
-        outcome = requests.post(url=GUILDMEMBERS, params={"accessToken" : ctx["accessToken"]})
+        outcome = requests.post(url=GUILDMEMBERS, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
         outcome = (False, "GUILDMEMBERS", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "GUILDMEMBERS", outcome))
 
 def gatherChar(ctx : Context, queue : queue.Queue):
     try:
-        outcome = requests.post(url=CHAR, params={"accessToken" : ctx["accessToken"]})
+        outcome = requests.post(url=CHAR, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
         outcome = (False, "CHARLIST", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "CHARLIST", outcome))
 
 def gatherServer(ctx : Context, queue : queue.Queue):
     try:
-        outcome = requests.post(url=SERVERS, params={"accessToken" : ctx["accessToken"]})
+        outcome = requests.post(url=SERVERS, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
         outcome = (False, "SERVERS", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "SERVERS", outcome))
