@@ -9,6 +9,7 @@ from Renders.GameScreen.gameScreen import drawGame
 from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
 
 from Constants.Screen import Screen
+from Models.Context import Context
 
 import curses
 
@@ -21,7 +22,7 @@ def main(stdscr : curses.window):
     stdscr.bkgd(" ", curses.color_pair(1))
 
     screen = Screen.accountSelect
-    ctx = {}  # shared data screens pass forward
+    ctx : Context = {}  # shared data screens pass forward
     handlers = {
         Screen.accountSelect: drawAccountSelect,
         Screen.enterAccountInfo: enterAccountInfo,

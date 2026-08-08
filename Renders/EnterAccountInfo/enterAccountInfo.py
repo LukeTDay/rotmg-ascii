@@ -1,12 +1,13 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from authentication.getAccessAndClientToken import getAccessAndClientToken
+from Models.Context import Context, AccountData
 
 import curses, json, time, os, tempfile, threading, queue
 from typing import List
 
 
-def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
+def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     try:
         storedAccounts = credential_loader()
     except FileNotFoundError:
@@ -231,7 +232,7 @@ def enterAccountInfo(stdscr : curses.window, ctx) -> Screen:
             continue
         return Screen.accountSelect
 
-    newEntry = {
+    newEntry : AccountData = {
         "alias" : alias,
         "email" : email,
         "password" : password
