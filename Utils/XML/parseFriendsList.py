@@ -1,14 +1,12 @@
-from typing import Dict
 import requests
 import xml.etree.ElementTree as et
 
 def parseFriendsList(r : requests.models.Response):
     xmlText = r.text
     root = et.fromstring(xmlText)
-
+    nameSet = set()
     for friend in root.findall("Account"):
         nameElement = friend.find("Name")
-        nameSet = set()
         if nameElement is None:
             continue
         name = nameElement.text
@@ -17,4 +15,4 @@ def parseFriendsList(r : requests.models.Response):
             continue
         nameSet.add(name)
 
-        return nameSet
+    return nameSet
