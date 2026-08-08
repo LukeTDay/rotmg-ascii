@@ -124,11 +124,6 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(3)
         return Screen.accountSelect
-        
-
-    
-    while True:
-        pad.getch() # Temp to pause program
 
 def checkThreads(threadList : List[threading.Thread]) -> bool:
     result = True
