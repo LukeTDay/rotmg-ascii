@@ -4,6 +4,7 @@ from Constants.ApiPoints import *
 from Utils.XML.parseServersXML import parseServersXML
 from Utils.XML.parseCharList import parseCharList
 from Utils.XML.parseFriendsList import parseFriendsList
+from Utils.XML.parseGuildmembers import parseGuildMembers
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, verifyWorker
 
@@ -114,7 +115,7 @@ def drawLogin(stdscr : curses.window, ctx) -> Screen:
         determineRefreshWindow(stdscr,pad,yIndex)
         
 
-
+    
     while True:
         pad.getch() # Temp to pause program
 
@@ -125,13 +126,12 @@ def checkThreads(threadList : List[threading.Thread]) -> bool:
             return False
     return result
 
-
 def parseHandler(ctx, result) -> None:
     match result[1]:
         case "FRIENDSLIST":
             ctx["FRIENDSLIST"] = parseFriendsList(result[2])
         case "GUILDMEMBERS":
-            pass
+            ctx["GUILDMEMBERS"] = parseGuildMembers(result[2])
         case "CHARLIST":
             ctx["CHARLIST"] = parseCharList(result[2])
         case "SERVERS":
@@ -148,7 +148,6 @@ def gatherData(ctx : Dict[str,str],
     charThread.start()
     serverThread.start()
     return [friendThread,guildThread,charThread,serverThread]
-
 
 def gatherFriend(ctx : Dict[str, str], queue : queue.Queue):
     try:
