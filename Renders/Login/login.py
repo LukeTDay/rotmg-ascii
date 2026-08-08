@@ -1,11 +1,12 @@
 from Constants.Screen import Screen
 from Constants.ApiPoints import *
 
-from Utils.XML.parserServersXML import parseServersXML
+from Utils.XML.parseServersXML import parseServersXML
+from Utils.XML.parseCharList import parseCharList
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, verifyWorker
 
-import curses, threading, queue, time, requests
+import curses, threading, queue, time, requests,os
 from typing import List, Dict
 
 def drawLogin(stdscr : curses.window, ctx) -> Screen:
@@ -30,9 +31,6 @@ def drawLogin(stdscr : curses.window, ctx) -> Screen:
 
     #Loading the account so that it can be verified
     currentAccount = ctx["account"]
-    alias = currentAccount["alias"]
-    email = currentAccount["email"]
-    password = currentAccount["password"]
 
     resultQueue = queue.Queue()
     tokenThread = threading.Thread(target=verifyWorker, args=(ctx["account"], resultQueue), daemon=True)
@@ -134,7 +132,7 @@ def parseHandler(ctx, result) -> None:
         case "GUILDMEMBERS":
             pass
         case "CHARLIST":
-            pass
+            ctx["CHARLIST"] = parseCharList(result[2])
         case "SERVERS":
             ctx["SERVERS"] = parseServersXML(result[2])
 
