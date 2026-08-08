@@ -2,6 +2,12 @@ from typing import TypedDict, List, Dict, Set, TypeVar
 
 from Models.CharListData import CharListData
 
+from Networking.Ticker import Ticker
+from Networking.Listener import Listener
+from Networking.Sender import Sender
+
+import queue
+
 
 class AccountData(TypedDict):
     alias: str
@@ -18,6 +24,11 @@ class Context(TypedDict, total=False):
     GUILDMEMBERS: Set[str]
     SERVERS: Dict[str, str]
     CURR_CHAR_ID: int
+    TICKER : Ticker
+    LISTENER : Listener
+    SENDER : Sender
+    INCOMINGQUEUE : queue.Queue
+    OUTGOINGQUEUE : queue.Queue
 
 
 T = TypeVar("T")
