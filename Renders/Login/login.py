@@ -7,11 +7,12 @@ from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, verifyWorker
+from Models.Context import Context
 
 import curses, threading, queue, time, requests,os
-from typing import List, Dict
+from typing import List
 
-def drawLogin(stdscr : curses.window, ctx) -> Screen:
+def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     """
     The goal of this screen is to give the user something 
     to look at while all of their information is fetched
@@ -136,7 +137,7 @@ def checkThreads(threadList : List[threading.Thread]) -> bool:
             return False
     return result
 
-def parseHandler(ctx, result) -> None:
+def parseHandler(ctx : Context, result) -> None:
     match result[1]:
         case "FRIENDSLIST":
             ctx["FRIENDSLIST"] = parseFriendsList(result[2])
@@ -147,7 +148,7 @@ def parseHandler(ctx, result) -> None:
         case "SERVERS":
             ctx["SERVERS"] = parseServersXML(result[2])
 
-def gatherData(ctx : Dict[str,str],
+def gatherData(ctx : Context,
                queue : queue.Queue) -> List[threading.Thread]:
     friendThread = threading.Thread(target=gatherFriend,args=(ctx, queue), daemon=True)
     guildThread  = threading.Thread(target=gatherGuild,args=(ctx, queue), daemon=True)
@@ -159,28 +160,28 @@ def gatherData(ctx : Dict[str,str],
     serverThread.start()
     return [friendThread,guildThread,charThread,serverThread]
 
-def gatherFriend(ctx : Dict[str, str], queue : queue.Queue):
+def gatherFriend(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=FRIENDSLIST, params={"accessToken" : ctx["accessToken"]})
     except Exception as e:
         outcome = (False, FRIENDSLIST, "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "FRIENDSLIST", outcome))
 
-def gatherGuild(ctx : Dict[str, str], queue : queue.Queue):
+def gatherGuild(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=GUILDMEMBERS, params={"accessToken" : ctx["accessToken"]})
     except Exception as e:
         outcome = (False, "GUILDMEMBERS", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "GUILDMEMBERS", outcome))
 
-def gatherChar(ctx : Dict[str, str], queue : queue.Queue):
+def gatherChar(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=CHAR, params={"accessToken" : ctx["accessToken"]})
     except Exception as e:
         outcome = (False, "CHARLIST", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "CHARLIST", outcome))
 
-def gatherServer(ctx : Dict[str, str], queue : queue.Queue):
+def gatherServer(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=SERVERS, params={"accessToken" : ctx["accessToken"]})
     except Exception as e:

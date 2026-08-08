@@ -1,10 +1,11 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
+from Models.Context import Context
 
 import curses, json
 
 
-def drawAccountSelect(stdscr : curses.window, ctx) -> Screen:
+def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
 
     try:
         storedAccounts = credential_loader()
