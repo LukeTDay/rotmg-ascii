@@ -295,7 +295,7 @@ def getPassword(stdscr : curses.window,
             break
         elif ch == 27:
             return None
-        elif ch in (curses.KEY_BACKSPACE, 127):
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
             if buf:
                 buf.pop()
         else:
@@ -323,7 +323,7 @@ def getEmail(stdscr : curses.window,
             break
         elif ch == 27:
             return None
-        elif ch in (curses.KEY_BACKSPACE, 127):
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
             if buf:
                 buf.pop()
         else:
@@ -348,7 +348,7 @@ def getAlias(stdscr : curses.window,
             break
         elif ch == 27:
             return None
-        elif ch in (curses.KEY_BACKSPACE, 127):
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
             if buf:
                 buf.pop()
         else:

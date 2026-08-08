@@ -44,7 +44,7 @@ def drawAccountSelect(stdscr : curses.window, ctx) -> Screen:
                 attr = curses.A_REVERSE
             else:
                 attr = curses.A_NORMAL
-            stdscr.addstr((index + 1) * 2, 0, f"{account["alias"]}", attr)
+            stdscr.addstr((index + 1) * 2, 0, f"{account['alias']}", attr)
             index += 1
         actualIndex = scrollOffset + index
         if (actualIndex == selected):
