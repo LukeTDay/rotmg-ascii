@@ -116,6 +116,8 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
             parseHandler(ctx, result)
         determineRefreshWindow(stdscr,pad,yIndex)
 
+    time.sleep(2)
+
     if moveOn:
         return Screen.charSelect
     else:
