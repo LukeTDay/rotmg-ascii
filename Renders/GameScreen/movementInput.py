@@ -1,7 +1,10 @@
 import curses
+import math
 from typing import Optional, Tuple
 
 from Data.WorldPosData import WorldPosData
+from Models.GameState import GameState
+from Models.TileManager import isTileBlocked
 from Networking.Ticker import Ticker
 
 # How far ahead of the current position each directional keypress nudges the
@@ -28,12 +31,16 @@ _DIRECTIONS = {
 }
 
 
-def handleMovementInput(pad: curses.window, ticker: Ticker) -> None:
+def handleMovementInput(pad: curses.window, ticker: Ticker, state: GameState) -> None:
     """Drains every pending keypress this frame (not just one - same "drain
     completely" convention used for the incoming network queue) and, for the
     last directional key seen, nudges the Ticker's movement target one tile
     further in that direction from wherever it currently tracks the player
-    as standing.
+    as standing - unless the tile directly ahead is blocked (a wall/
+    unwalkable object or a NoWalk ground type, see TileManager.isTileBlocked),
+    in which case no new target is set at all and the player just glides to
+    a stop at whatever target was already in flight, right at the tile
+    boundary rather than through it.
 
     Cardinal directions only (4-way): RotMG's real movement is free-angle,
     but that precision isn't meaningful at 1-tile-per-cell ASCII resolution,
@@ -58,6 +65,11 @@ def handleMovementInput(pad: curses.window, ticker: Ticker) -> None:
         return  # no authoritative position yet (before the first UPDATE/GOTO)
 
     dx, dy = direction
+    nextTileX = math.floor(currentPos.x) + int(dx)
+    nextTileY = math.floor(currentPos.y) + int(dy)
+    if isTileBlocked(state, nextTileX, nextTileY):
+        return  # wall/unwalkable tile directly ahead - refuse to move into it
+
     ticker.setTarget(WorldPosData(
         currentPos.x + dx * MOVE_LOOKAHEAD_TILES,
         currentPos.y + dy * MOVE_LOOKAHEAD_TILES,

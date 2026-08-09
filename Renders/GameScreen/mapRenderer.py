@@ -147,10 +147,11 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
         selfObj.pos = ticker.pos
 
     playerTileX, playerTileY = math.floor(ticker.pos.x), math.floor(ticker.pos.y)
-    friendsAndGuild = ctx.get("FRIENDSLIST", set()) | ctx.get("GUILDMEMBERS", set())
+    friendsList = ctx.get("FRIENDSLIST", set())
+    guildMembers = ctx.get("GUILDMEMBERS", set())
     lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
     visibleTiles = buildVisibleTiles(
-        state, projectiles, playerTileX, playerTileY, listener.objectId, friendsAndGuild, lockedAccounts
+        state, projectiles, playerTileX, playerTileY, listener.objectId, friendsList, guildMembers, lockedAccounts
     )
 
     scaleX, scaleY, mapAreaRows, mapAreaCols = computeScale(stdscr)

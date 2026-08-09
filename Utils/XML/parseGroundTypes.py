@@ -1,9 +1,17 @@
+import json
 import xml.etree.ElementTree as et
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 from Models.GroundTypeData import GroundTypeData
 
-GROUND_XML_PATH = "Resources/ground.xml"
+# Resources/ground.xml (this module's original source) is stale - it was
+# superseded by Scripts/AssetPipeline's extraction into Resources/_generated/
+# (see .gitignore/CLAUDE.md) and no longer exists on disk, which silently
+# left every groundIdToData() lookup returning None. Read from the same
+# manifest-listed generated files the asset pipeline itself uses instead.
+GENERATED_XML_DIR = Path("Resources/_generated/xml")
+MANIFEST_PATH = Path("Resources/_generated/json/manifest.json")
 
 
 def _parseTypeAttr(raw: str) -> Optional[int]:
@@ -42,8 +50,8 @@ def _parseColor(elem: Optional[et.Element]) -> Optional[int]:
 
 def parseGroundTypes(xmlText: str) -> Dict[int, GroundTypeData]:
     """Pure parse: XML text -> {groundTypeId: GroundTypeData}. No disk IO here -
-    kept separate from _readGroundXml() so a future automated-fetch step can
-    hand this function a downloaded string directly instead of a file path."""
+    kept separate from the file-loading loop in _loadGroundTypes() so each
+    generated XML file's text can be handed to it independently."""
     groundTypes: Dict[int, GroundTypeData] = {}
     root = et.fromstring(xmlText)
     for ground in root.findall("Ground"):
@@ -69,25 +77,40 @@ def parseGroundTypes(xmlText: str) -> Dict[int, GroundTypeData]:
     return groundTypes
 
 
-def _readGroundXml(path: str = GROUND_XML_PATH) -> Optional[str]:
-    """Isolated disk-read step so a future automated fetch of a newer
-    ground.xml could replace just this function later without touching the
-    parser or callers."""
+def _loadTileFileNames(manifest_path: Path = MANIFEST_PATH) -> List[str]:
+    """Reads the same manifest.json Scripts/AssetPipeline/parseGameXml.py
+    uses, returning its "tiles" file list in order - the global ground.xml
+    first, then ~55 per-dungeon override files (e.g. dungeon-specific lava/
+    chasm variants). Never raises: an unreadable/missing manifest just means
+    no ground types load, same fail-open posture as a single missing file."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except IOError:
-        return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (IOError, OSError, json.JSONDecodeError):
+        return []
+    return [Path(entry["path"]).stem for entry in manifest.get("tiles", [])]
 
 
 _groundTypesCache: Optional[Dict[int, GroundTypeData]] = None
 
 
 def _loadGroundTypes() -> Dict[int, GroundTypeData]:
+    """Merges every ground-type XML file the manifest lists under "tiles" -
+    later files win on id collision, mirroring parseGameXml.py's parseAll()
+    exactly, so this runtime loader and the asset pipeline agree on which
+    ground type a given id resolves to."""
     global _groundTypesCache
     if _groundTypesCache is None:
-        xmlText = _readGroundXml()
-        _groundTypesCache = parseGroundTypes(xmlText) if xmlText is not None else {}
+        merged: Dict[int, GroundTypeData] = {}
+        for name in _loadTileFileNames():
+            path = GENERATED_XML_DIR / f"{name}.xml"
+            if not path.is_file():
+                continue
+            try:
+                xmlText = path.read_text(encoding="utf-8")
+            except (IOError, OSError):
+                continue
+            merged.update(parseGroundTypes(xmlText))
+        _groundTypesCache = merged
     return _groundTypesCache
 
 

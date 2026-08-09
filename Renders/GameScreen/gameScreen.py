@@ -258,7 +258,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             pass
         projectiles.prune()
         drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
-        handleMovementInput(pad, ticker)
+        handleMovementInput(pad, ticker, state)
         elapsed = time.time() - frameStart
         remaining = FRAME_INTERVAL_SECONDS - elapsed
         if remaining < 0:
