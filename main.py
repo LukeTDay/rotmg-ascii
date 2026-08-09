@@ -11,7 +11,7 @@ from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
 from Constants.Screen import Screen
 from Models.Context import Context
 
-import curses
+import curses, sys, traceback
 
 #accessToken,clientToken = getAccessAndClientToken(accounts[0])[1]
 
@@ -35,4 +35,10 @@ def main(stdscr : curses.window):
         screen = handlers[screen](stdscr, ctx)
 
 if __name__ == "__main__":
-    curses.wrapper(main)
+    try:
+        curses.wrapper(main)
+    except Exception:
+        # curses.wrapper already restored the terminal by this point, so it's
+        # safe to print straight to the now-normal stdout/stderr.
+        traceback.print_exc()
+        sys.exit(1)

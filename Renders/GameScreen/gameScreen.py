@@ -13,7 +13,7 @@ import curses, threading, queue, time
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
     stdscr.erase()
-    pad = curses.newpad(1500, 150)
+    pad = curses.newpad(1500, 500)
 
     pad.keypad(True)
     pad.clrtobot()

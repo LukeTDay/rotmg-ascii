@@ -21,7 +21,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
 
     #Erasing the screen before making the pad
     stdscr.erase()
-    pad = curses.newpad(1500 ,150)
+    pad = curses.newpad(1500 ,500)
 
     pad.keypad(True)
     pad.clrtobot()

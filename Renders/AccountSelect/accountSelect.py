@@ -14,7 +14,7 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         storedAccounts = credential_loader()
     except json.JSONDecodeError as e:
         stdscr.erase()
-        pad = curses.newpad(1500, 150)
+        pad = curses.newpad(1500, 500)
         pad.keypad(True)
         y = drawCenteredBanner(stdscr, pad, 0, "JSON Error")
         y = drawCenteredText(stdscr, pad, y + 1, "There was an error decoding your JSON folder")
@@ -30,7 +30,7 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         return Screen.enterAccountInfo
 
     stdscr.erase()
-    pad = curses.newpad(1500, 150)
+    pad = curses.newpad(1500, 500)
     pad.keypad(True)
     pad.clrtobot()
 

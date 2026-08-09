@@ -14,7 +14,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         storedAccounts = []
 
     stdscr.erase()
-    pad = curses.newpad(100,150)
+    pad = curses.newpad(100,500)
     pad.keypad(True)
     pad.clrtobot()
 
@@ -30,16 +30,16 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     #Only print this warning for accounts that can go back to the account
     # select screen
     if canSelect:
-        pad.addstr(yIndex,0,"If you would like to exit and select an already stored account please press ESC")
+        drawCenteredText(stdscr,pad,yIndex,"If you would like to exit and select an already stored account please press ESC")
         determineRefreshWindow(stdscr,pad,yIndex)
         yIndex += 1
-        pad.addstr(yIndex,0,"**If your account_credentials.json does not exist or is empty you will be redirected back here directly**")
+        drawCenteredText(stdscr,pad,yIndex,"**If your account_credentials.json does not exist or is empty you will be redirected back here directly**")
         determineRefreshWindow(stdscr,pad,yIndex)
         yIndex += 2
     if not canSelect:
-        pad.addstr(yIndex,0, "You do not have any accounts stored.")
+        drawCenteredText(stdscr,pad,yIndex, "You do not have any accounts stored.")
         yIndex += 1
-        pad.addstr(yIndex, 0, "You must input an account to move forward")
+        drawCenteredText(stdscr,pad,yIndex, "You must input an account to move forward")
         determineRefreshWindow(stdscr,pad,yIndex)
 
     #In the case that passwords do not match will need to use this variable
@@ -59,13 +59,12 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         email = getEmail(stdscr=stdscr,
                         pad=pad,
                         yIndex=yIndex,
-                        xIndex=0,
-                        )    
+                        )
         if email == None and canSelect:
             return Screen.accountSelect
         if email == None and not canSelect:
             yIndex += 1
-            pad.addstr(yIndex, 0, "You do not have any other accounts stored you must input a new one")
+            drawCenteredText(stdscr,pad,yIndex, "You do not have any other accounts stored you must input a new one")
             determineRefreshWindow(stdscr,pad,yIndex)
             time.sleep(2)
             continue
@@ -91,17 +90,15 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         pass1 = getPassword(stdscr,
                             pad=pad,
                             questionToAsk="Please enter your password",
-                            yIndex=yIndex,
-                            xIndex=0)
+                            yIndex=yIndex)
         if pass1 is None and canSelect:
             return Screen.accountSelect
         yIndex += 2
         pass2 = getPassword(stdscr,
                             pad=pad,
                             questionToAsk="Confirm your password     ",
-                            yIndex=yIndex,
-                            xIndex=0)
-        if pass2 is None and canSelect: 
+                            yIndex=yIndex)
+        if pass2 is None and canSelect:
             return Screen.accountSelect
 
         if pass1 == pass2:
@@ -110,16 +107,16 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             break
         else:
             yIndex += 1
-            pad.addstr(yIndex,0,"Password's did not match")
+            drawCenteredText(stdscr,pad,yIndex,"Password's did not match")
             determineRefreshWindow(stdscr,pad,yIndex)
             yIndex += 1
-            pad.addstr(yIndex,0,"Press any key to retry or ESC to select another account")
+            drawCenteredText(stdscr,pad,yIndex,"Press any key to retry or ESC to select another account")
             determineRefreshWindow(stdscr,pad,yIndex)
             ch = pad.getch()
             if ch == 27:
                 if len(storedAccounts) == 0:
                     yIndex += 2
-                    pad.addstr(yIndex,0,"You currently have no accounts locally stored you must input one to continue")
+                    drawCenteredText(stdscr,pad,yIndex,"You currently have no accounts locally stored you must input one to continue")
                     determineRefreshWindow(stdscr,pad,yIndex)
                     time.sleep(2)
                     continue
@@ -136,7 +133,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         raise RuntimeError("Email is None. This should not be possible")
     if password is None:
         raise RuntimeError("Password is None. This should not be possible")
-    
+
     credentialDict = {
         "email" : email,
         "password"  : password
@@ -149,7 +146,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     while thread.is_alive():
         pad.move(yIndex,0)
         pad.clrtobot()
-        pad.addstr(yIndex,0,f"Verifying ROTMG account{''.join(buf)}")
+        drawCenteredText(stdscr,pad,yIndex,f"Verifying ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
         if len(buf) == 5:
@@ -164,30 +161,30 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         errText = success[2]
         if errReason == "TOKEN_ERROR":
             pad.clrtobot()
-            pad.addstr(yIndex,0, "There was an issue loading your token")
+            drawCenteredText(stdscr,pad,yIndex, "There was an issue loading your token")
             yIndex += 1
-            pad.addstr(yIndex,0,f"Incorrect email or password")
+            drawCenteredText(stdscr,pad,yIndex,f"Incorrect email or password")
             determineRefreshWindow(stdscr,pad,yIndex)
         elif errReason == "VERIFY_TOKEN_ERROR":
             pad.clrtobot()
-            pad.addstr(yIndex,0, "There was an issue verifying your token")
+            drawCenteredText(stdscr,pad,yIndex, "There was an issue verifying your token")
             yIndex += 1
-            pad.addstr(yIndex,0,f"Error Message: {errText}")
+            drawCenteredText(stdscr,pad,yIndex,f"Error Message: {errText}")
             determineRefreshWindow(stdscr,pad,yIndex)
         elif errReason == "UNEXPECTED_ERROR":
             pad.clrtobot()
-            pad.addstr(yIndex,0, "There was an unexpected error")
+            drawCenteredText(stdscr,pad,yIndex, "There was an unexpected error")
             yIndex += 1
-            pad.addstr(yIndex,0,f"Error Message: {errText}")
+            drawCenteredText(stdscr,pad,yIndex,f"Error Message: {errText}")
             determineRefreshWindow(stdscr,pad,yIndex)
         yIndex += 2
-        pad.addstr(yIndex,0,"Please press any key to try again.")
+        drawCenteredText(stdscr,pad,yIndex,"Please press any key to try again.")
         determineRefreshWindow(stdscr,pad,yIndex)
         pad.getch()
         return Screen.enterAccountInfo
-    
+
     pad.clrtobot()
-    pad.addstr(yIndex,0, "Account successfully verified.")
+    drawCenteredText(stdscr,pad,yIndex, "Account successfully verified.")
     determineRefreshWindow(stdscr,pad,yIndex)
 
     yIndex += 2
@@ -201,11 +198,10 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             stdscr=stdscr,
             pad=pad,
             yIndex=yIndex,
-            xIndex=0
         )
         if alias == "":
             yIndex += 1
-            pad.addstr(yIndex, 0, "Cannot use an empty alias.")
+            drawCenteredText(stdscr,pad,yIndex, "Cannot use an empty alias.")
             determineRefreshWindow(stdscr,pad,yIndex)
             time.sleep(2)
             continue
@@ -215,7 +211,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             for account in storedAccounts:
                 if account["alias"] == alias:
                     yIndex += 1
-                    pad.addstr(yIndex,0,f"{alias} is already in use. You must choose another one")
+                    drawCenteredText(stdscr,pad,yIndex,f"{alias} is already in use. You must choose another one")
                     determineRefreshWindow(stdscr,pad,yIndex)
                     time.sleep(2)
                     shouldRecreate = True
@@ -226,7 +222,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
 
         if len(storedAccounts) == 0:
             yIndex += 1
-            pad.addstr(yIndex, 0, "As you do not have any other accounts, you must choose an alias for this one.")
+            drawCenteredText(stdscr,pad,yIndex, "As you do not have any other accounts, you must choose an alias for this one.")
             determineRefreshWindow(stdscr,pad,yIndex)
             time.sleep(2)
             continue
@@ -246,27 +242,27 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             os.mkdir("Credentials")
         except PermissionError:
             yIndex += 2
-            pad.addstr(yIndex,0,"Credentials directory does not exist and insufficient "
+            drawCenteredText(stdscr,pad,yIndex,"Credentials directory does not exist and insufficient "
             "permission to create a new one. Please create the directory yourself or run "
             "the program with higher authority.")
             determineRefreshWindow(stdscr,pad,yIndex)
             yIndex += 1
-            pad.addstr(yIndex,0,"Enter to exit.")
+            drawCenteredText(stdscr,pad,yIndex,"Enter to exit.")
             determineRefreshWindow(stdscr,pad,yIndex)
             pad.getch()
             return Screen.exit
         except Exception as e:
             yIndex += 2
-            pad.addstr(yIndex,0,"Unexpected error occured when trying to create a directory to store the credentials.")
+            drawCenteredText(stdscr,pad,yIndex,"Unexpected error occured when trying to create a directory to store the credentials.")
             determineRefreshWindow(stdscr,pad,yIndex)
             yIndex += 1
-            pad.addstr(yIndex,0,f"Error {e}")
+            drawCenteredText(stdscr,pad,yIndex,f"Error {e}")
             determineRefreshWindow(stdscr,pad,yIndex)
             yIndex += 1
-            pad.addstr(yIndex,0,"Press enter to exit.")
+            drawCenteredText(stdscr,pad,yIndex,"Press enter to exit.")
             determineRefreshWindow(stdscr,pad,yIndex)
             return Screen.exit
-        
+
     tempLoc = tempfile.NamedTemporaryFile(mode="w",dir="Credentials/", delete=False, encoding="utf-8")
     json.dump(storedAccounts,tempLoc, indent=4)
     tempLoc.close()
@@ -290,6 +286,27 @@ def drawCenteredText(stdscr : curses.window,
     (not the pad's fixed width). Returns the next free row."""
     _, maxX = stdscr.getmaxyx()
     x = max(0, (maxX - len(text)) // 2)
+    pad.addstr(y, x, text[:max(0, maxX - x)], attr)
+    return y + 1
+
+def centeredX(stdscr : curses.window, text : str) -> int:
+    """Column that would center this text against the terminal's actual width.
+    Callers that redraw a growing/shrinking string (e.g. live input echo)
+    should compute this once from a fixed-length anchor string and reuse it,
+    rather than recomputing from the current text each redraw - recomputing
+    would recenter (and therefore visibly shift) the line on every keystroke."""
+    _, maxX = stdscr.getmaxyx()
+    return max(0, (maxX - len(text)) // 2)
+
+def drawTextAt(stdscr : curses.window,
+               pad : curses.window,
+               y : int,
+               x : int,
+               text : str,
+               attr : int = curses.A_NORMAL) -> int:
+    """Writes text at a fixed column instead of recentering it. Returns the
+    next free row."""
+    _, maxX = stdscr.getmaxyx()
     pad.addstr(y, x, text[:max(0, maxX - x)], attr)
     return y + 1
 
@@ -323,9 +340,12 @@ def drawCenteredBanner(stdscr : curses.window,
 def getPassword(stdscr : curses.window,
                 pad : curses.window,
                 questionToAsk : str,
-                yIndex : int,
-                xIndex : int) -> str | None:
-    pad.addstr(yIndex,xIndex,f"{questionToAsk}: ")
+                yIndex : int) -> str | None:
+    prompt = f"{questionToAsk}: "
+    # Anchored on the prompt's own (fixed-length) width, not the growing
+    # buffer, so the line doesn't recenter/shift horizontally as you type.
+    x = centeredX(stdscr, prompt)
+    drawTextAt(stdscr,pad,yIndex,x,prompt)
     determineRefreshWindow(stdscr,pad,yIndex)
 
     buf = []
@@ -341,9 +361,9 @@ def getPassword(stdscr : curses.window,
         else:
             buf.append(chr(ch))
 
-        pad.move(yIndex, xIndex)
+        pad.move(yIndex, x)
         pad.clrtobot()
-        pad.addstr(yIndex,xIndex,f"{questionToAsk}: {'*' * len(buf)} ")
+        drawTextAt(stdscr,pad,yIndex,x,f"{prompt}{'*' * len(buf)} ")
         determineRefreshWindow(stdscr,pad,yIndex)
 
     result = ''.join(buf)
@@ -351,9 +371,10 @@ def getPassword(stdscr : curses.window,
 
 def getEmail(stdscr : curses.window,
                 pad : curses.window,
-                yIndex : int,
-                xIndex : int) -> str | None:
-    pad.addstr(yIndex, xIndex, "Please enter your email: ")
+                yIndex : int) -> str | None:
+    prompt = "Please enter your email: "
+    x = centeredX(stdscr, prompt)
+    drawTextAt(stdscr,pad,yIndex,x,prompt)
     determineRefreshWindow(stdscr,pad,yIndex)
 
     buf = []
@@ -368,17 +389,18 @@ def getEmail(stdscr : curses.window,
                 buf.pop()
         else:
             buf.append(chr(ch))
-        pad.move(yIndex, xIndex)
+        pad.move(yIndex, x)
         pad.clrtobot()
-        pad.addstr(yIndex, xIndex, f"Please enter your email: {''.join(buf)}")
+        drawTextAt(stdscr,pad,yIndex,x, f"{prompt}{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
     return ''.join(buf)
 
 def getAlias(stdscr : curses.window,
                 pad : curses.window,
-                yIndex : int,
-                xIndex : int) -> str | None:
-    pad.addstr(yIndex, xIndex, "Please enter the alias of this account: ")
+                yIndex : int) -> str | None:
+    prompt = "Please enter the alias of this account: "
+    x = centeredX(stdscr, prompt)
+    drawTextAt(stdscr,pad,yIndex,x,prompt)
     determineRefreshWindow(stdscr,pad,yIndex)
 
     buf = []
@@ -393,9 +415,9 @@ def getAlias(stdscr : curses.window,
                 buf.pop()
         else:
             buf.append(chr(ch))
-        pad.move(yIndex, xIndex)
+        pad.move(yIndex, x)
         pad.clrtobot()
-        pad.addstr(yIndex, xIndex, f"Please enter the alias of this account: {''.join(buf)}")
+        drawTextAt(stdscr,pad,yIndex,x, f"{prompt}{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
     return ''.join(buf)
 
@@ -406,6 +428,5 @@ def verifyWorker(credentialDict, resultQueue) -> None:
         outcome = (False, "UNEXPECTED_ERROR", f"Unexpected error: {e}")
     resultQueue.put(outcome)
 
-    
 
 

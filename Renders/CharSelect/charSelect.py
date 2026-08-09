@@ -14,7 +14,7 @@ ROWS_PER_SLOT = 4  # 3 text rows + 1 blank spacer row
 def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
 
     stdscr.erase()
-    pad = curses.newpad(1500 ,150)
+    pad = curses.newpad(1500 ,500)
 
     pad.keypad(True)
     pad.clrtobot()
@@ -42,7 +42,8 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
         elif selected >= scrollOffset + visibleRows:
             scrollOffset = selected - visibleRows + 1
 
-        shownCount = min(visibleRows, len(loadedChars) - scrollOffset)
+        entryCount = len(loadedChars) + 1  # + "Back to Account Select"
+        shownCount = min(visibleRows, entryCount - scrollOffset)
         totalHeight = headerHeight + shownCount * ROWS_PER_SLOT
         y = max(0, (height - totalHeight) // 2)
 
@@ -51,12 +52,12 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
         y = drawCenteredBanner(stdscr, pad, y, alias)
         y += 1
 
-        index = 0
-        for char in loadedChars[scrollOffset : scrollOffset + visibleRows]:
-            actualIndex = scrollOffset + index
+        for actualIndex in range(scrollOffset, min(scrollOffset + visibleRows, entryCount)):
             attr = curses.A_REVERSE if actualIndex == selected else curses.A_NORMAL
-            y = printCharSlot(stdscr, pad, y, char, attr)
-            index += 1
+            if actualIndex < len(loadedChars):
+                y = printCharSlot(stdscr, pad, y, loadedChars[actualIndex], attr)
+            else:
+                y = printBackSlot(stdscr, pad, y, attr)
 
         determineRefreshWindow(stdscr,pad,y)
         key = pad.getch()
@@ -66,8 +67,10 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
             selected = max(0, selected)
         elif key == curses.KEY_DOWN or key == ord('s'):
             selected = selected + 1
-            selected = min(len(loadedChars) - 1, selected)
+            selected = min(entryCount - 1, selected)
         elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
+            if selected == len(loadedChars):
+                return Screen.accountSelect
             ctx["CURR_CHAR_ID"] = loadedChars[selected].charID
             return Screen.gameScreen
 
@@ -85,3 +88,12 @@ def printCharSlot(stdscr : curses.window,
     y = drawCenteredText(stdscr, pad, y, f"{str2:<{maxLength}}", attr)
     y = drawCenteredText(stdscr, pad, y, f"{str3:<{maxLength}}", attr)
     return y + 1
+
+def printBackSlot(stdscr : curses.window,
+                  pad : curses.window,
+                  y : int,
+                  attr : int) -> int:
+    # Kept the same total height as printCharSlot (ROWS_PER_SLOT rows) so the
+    # scroll/visibleRows math above can treat every entry as a uniform slot.
+    y = drawCenteredText(stdscr, pad, y, "Back to Account Select", attr)
+    return y + 3
