@@ -5,11 +5,14 @@ from Models.Context import Context, required
 
 from Models.GameState import GameState
 from Models.PlayerData import PlayerData
+from Models.ProjectileStore import ProjectileStore
 
 from Networking.Connect import connectToGame
 import Networking.PacketHelper as PacketHelper
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
+
+from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader
 
 import curses, threading, queue, time
 
@@ -138,11 +141,39 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
         time.sleep(0.25)
 
 
+def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: int, projectileId: int,
+                       ownerId: int, bulletId: int, startingPos, baseAngle: float, angleInc: float,
+                       numShots: int, damage: int) -> None:
+    """Fan out `numShots` bullets starting at `baseAngle`, each subsequent one
+    offset by `angleInc` - the server sends one shoot packet per burst, not one
+    per bullet. This exact fan formula isn't documented anywhere authoritative
+    (see CLAUDE.local.md); it matches every reference implementation's field
+    naming (`angle` = first shot, `angleIncrement`/`angleInc` = per-shot step).
+    """
+    definition = getProjectileDefinition(projectileMap, ownerObjectType, projectileId)
+    if definition is None:
+        return
+    for i in range(max(1, numShots)):
+        store.spawn(
+            bulletId=bulletId,
+            ownerId=ownerId,
+            startingPos=startingPos,
+            angle=baseAngle + angleInc * i,
+            speed=definition.speed,
+            damage=damage,
+            lifetimeMS=definition.lifetimeMS,
+            size=definition.size,
+            shotIndex=i,
+        )
+
+
 def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen:
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
     listener = required(ctx.get("LISTENER"), "LISTENER")
     state = GameState()
     player = PlayerData()
+    projectiles = ProjectileStore()
+    projectileMap = projectileMapLoader()
 
     pad.move(0, 0)
     pad.clrtobot()
@@ -169,8 +200,23 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                         if status.objectId == listener.objectId:
                             player.pos = status.pos
                             player.parseStats(status.stats)
+                elif event.type == "SERVERPLAYERSHOOT":
+                    _spawnProjectiles(
+                        projectiles, projectileMap, event.containerType, 0,
+                        event.ownerId, event.bulletId, event.startingPos,
+                        event.angle, event.bulletAngle, event.bulletCount, event.damage,
+                    )
+                elif event.type == "ENEMYSHOOT":
+                    owner = state.objects.get(event.ownerId)
+                    if owner is not None:
+                        _spawnProjectiles(
+                            projectiles, projectileMap, owner.objectType, event.bulletType,
+                            event.ownerId, event.bulletId, event.startingPos,
+                            event.angle, event.angleInc, event.numShots, event.damage,
+                        )
         except queue.Empty:
             pass
+        projectiles.prune()
         pad.getch()
         time.sleep(0.05)
 

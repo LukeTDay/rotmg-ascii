@@ -219,10 +219,11 @@ __marimo__/
 
 # Ignoring json files because they contain user info
 *.json
-# ...except the generated render map itself, which is tracked output of
-# Scripts/AssetPipeline (renderMapOverrides.json intentionally stays
+# ...except the generated render map and projectile map, both tracked output
+# of Scripts/AssetPipeline (renderMapOverrides.json intentionally stays
 # ignored - see Resources/renderMapOverrides.jsonEXAMPLE)
 !Resources/renderMap.json
+!Resources/projectileMap.json
 
 # Personal Claude Code instructions, not shared with the team
 CLAUDE.local.md
