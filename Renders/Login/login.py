@@ -81,7 +81,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     ctx["accessToken"] = success[1][0]
     ctx["clientToken"] = success[1][1]
 
-    with open("gameVersion.txt", "r", encoding="utf-8") as f:
+    with open("Resources/version.txt", "r", encoding="utf-8") as f:
         ctx["buildVersion"] = f.read().strip()
 
     groupQueue = queue.Queue()

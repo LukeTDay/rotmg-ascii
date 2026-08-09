@@ -1,6 +1,8 @@
 """
-Finds the game's build version string (the one `gameVersion.txt` at the repo
-root needs for the HELLO handshake, per CLAUDE.md).
+Finds the game's build version string (the one `Resources/version.txt`
+needs for the HELLO handshake, per CLAUDE.md — `run.py` writes this
+module's result there directly; there's no more hand-maintained
+`gameVersion.txt` at the repo root).
 
 It isn't in any TextAsset, XML, or JSON extracted by `extractBundles.py` —
 confirmed by grepping every extracted file. It turns out to be a compiled
@@ -11,8 +13,8 @@ regex over the raw bytes.
 
 Confirmed against a real install: the 5-part dotted pattern (`6.13.0.0.0`)
 appears in `global-metadata.dat` exactly once, right next to `"127.0.0.1"`
-and `"*Client*"` string literals, and matches this repo's existing
-`gameVersion.txt` exactly.
+and `"*Client*"` string literals, and matched this repo's `gameVersion.txt`
+exactly, back when that file still existed.
 """
 
 import re

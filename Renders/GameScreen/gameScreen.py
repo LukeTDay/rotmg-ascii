@@ -168,8 +168,9 @@ def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, pack
     pad.clrtobot()
     y = drawCenteredBanner(stdscr, pad, 0, "Disconnected")
     if packet.errorDescription == "s.update_client":
-        y = drawCenteredText(stdscr, pad, y + 1, "Your gameVersion.txt is outdated.")
-        y = drawCenteredText(stdscr, pad, y, "Close this program and update it manually with the correct version.")
+        y = drawCenteredText(stdscr, pad, y + 1, "Your Resources/version.txt is outdated.")
+        y = drawCenteredText(stdscr, pad, y, "Update/launch RotMG Exalt so it downloads the latest game files,")
+        y = drawCenteredText(stdscr, pad, y, "then close this program and run: python -m Scripts.AssetPipeline.run")
     else:
         y = drawCenteredText(stdscr, pad, y + 1, f"Error: {packet.errorDescription}")
     y = drawCenteredText(stdscr, pad, y + 2, "Please press any key to continue.")
