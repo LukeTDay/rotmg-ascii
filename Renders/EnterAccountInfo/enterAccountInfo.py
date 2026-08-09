@@ -3,7 +3,7 @@ from Utils.json.accCredLoader import credential_loader
 from authentication.getAccessAndClientToken import getAccessAndClientToken
 from Models.Context import Context, AccountData
 
-import curses, json, time, os, tempfile, threading, queue
+import curses, json, time, os, tempfile, threading, queue, pyfiglet
 from typing import List
 
 
@@ -280,6 +280,44 @@ def determineRefreshWindow(stdscr : curses.window,
     maxY, maxX = stdscr.getmaxyx()
     scrollTop = max(0, yIndex - maxY + 1)
     pad.refresh(scrollTop,0,0,0,maxY-1,maxX-1)
+
+def drawCenteredText(stdscr : curses.window,
+                     pad : curses.window,
+                     y : int,
+                     text : str,
+                     attr : int = curses.A_NORMAL) -> int:
+    """Writes a single line centered against the terminal's actual width
+    (not the pad's fixed width). Returns the next free row."""
+    _, maxX = stdscr.getmaxyx()
+    x = max(0, (maxX - len(text)) // 2)
+    pad.addstr(y, x, text[:max(0, maxX - x)], attr)
+    return y + 1
+
+def _figletLines(text : str, font : str = "standard") -> List[str]:
+    # width=1000 disables pyfiglet's default 80-column auto-wrap, which would
+    # otherwise silently wrap longer banners onto a garbled second line.
+    return pyfiglet.Figlet(font=font, width=1000).renderText(text).rstrip("\n").split("\n")
+
+def figletLineCount(text : str, font : str = "standard") -> int:
+    """Row count a banner of this text/font will take up, without drawing it -
+    lets a caller lay out content around a banner before rendering it."""
+    return len(_figletLines(text, font))
+
+def drawCenteredBanner(stdscr : curses.window,
+                       pad : curses.window,
+                       y : int,
+                       text : str,
+                       font : str = "standard") -> int:
+    """Renders text as large pyfiglet ASCII-art, each line centered against the
+    terminal's actual width (re-read every call, so it re-centers if the
+    terminal is resized between frames). Returns the next free row so callers
+    can stack more content underneath."""
+    _, maxX = stdscr.getmaxyx()
+    lines = _figletLines(text, font)
+    for i, line in enumerate(lines):
+        x = max(0, (maxX - len(line)) // 2)
+        pad.addstr(y + i, x, line[:max(0, maxX - x)])
+    return y + len(lines)
 
 def getPassword(stdscr : curses.window,
                 pad : curses.window,

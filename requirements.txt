@@ -1,2 +1,3 @@
 requests
+pyfiglet
 windows-curses; platform_system=="Windows"
