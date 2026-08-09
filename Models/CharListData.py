@@ -7,10 +7,12 @@ class CharListData():
                  isSeasonal : bool,
                  currentFame : int,
                  currentLevel : int,
-                 equipmentList : List[int]) -> None:
+                 equipmentList : List[int],
+                 isInCrucible : bool) -> None:
         self.charID = charID
         self.objectType = objectType
         self.isSeasonal = isSeasonal
         self.currentFame = currentFame
         self.currentLevel = currentLevel
         self.equipmentList = equipmentList
+        self.isInCrucible = isInCrucible

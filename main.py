@@ -9,6 +9,7 @@ from Renders.GameScreen.gameScreen import drawGame
 from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
 
 from Constants.Screen import Screen
+from Constants import ColorPairs
 from Models.Context import Context
 
 import curses, sys, traceback
@@ -18,8 +19,16 @@ import curses, sys, traceback
 def main(stdscr : curses.window):
     curses.curs_set(0) # Makes the cursor disappear
     curses.start_color()
-    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
-    stdscr.bkgd(" ", curses.color_pair(1))
+    curses.init_pair(ColorPairs.DEFAULT, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    curses.init_pair(ColorPairs.FAME, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(ColorPairs.SEASONAL, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.init_pair(ColorPairs.STANDARD, curses.COLOR_BLUE, curses.COLOR_BLACK)
+    curses.init_pair(ColorPairs.CRUCIBLE, curses.COLOR_RED, curses.COLOR_BLACK)
+    curses.init_pair(ColorPairs.FAME_SELECTED, curses.COLOR_YELLOW, curses.COLOR_WHITE)
+    curses.init_pair(ColorPairs.SEASONAL_SELECTED, curses.COLOR_GREEN, curses.COLOR_WHITE)
+    curses.init_pair(ColorPairs.STANDARD_SELECTED, curses.COLOR_BLUE, curses.COLOR_WHITE)
+    curses.init_pair(ColorPairs.CRUCIBLE_SELECTED, curses.COLOR_RED, curses.COLOR_WHITE)
+    stdscr.bkgd(" ", curses.color_pair(ColorPairs.DEFAULT))
 
     screen = Screen.accountSelect
     ctx : Context = {}  # shared data screens pass forward

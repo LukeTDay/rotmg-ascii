@@ -3,10 +3,11 @@ from Constants.Screen import Screen
 import curses
 from typing import List
 
-from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText, figletLineCount
+from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, figletLineCount
 from Models.CharListData import CharListData
 from Models.Context import Context, required
 from Constants.ClassIds import *
+from Constants import ColorPairs
 
 ROWS_PER_SLOT = 4  # 3 text rows + 1 blank spacer row
 
@@ -74,19 +75,75 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
             ctx["CURR_CHAR_ID"] = loadedChars[selected].charID
             return Screen.gameScreen
 
+def _printSplitRow(stdscr : curses.window,
+                   pad : curses.window,
+                   y : int,
+                   leftText : str,
+                   rightText : str,
+                   width : int,
+                   leftPair : int | None,
+                   rightPair : int | None,
+                   selected : bool) -> int:
+    """Draws leftText/rightText spread across width, each independently
+    plain or colored via a native curses.COLOR_*/init_pair() pair (None =
+    plain) - same "no RGB remap" approach Debug/cp437_full_charset_16color_test.py
+    confirmed renders identically on Windows and Linux (raw ANSI truecolor
+    doesn't survive curses.addstr - see CLAUDE.md).
+
+    When selected, plain segments get A_REVERSE (the usual highlighted-row
+    look) but colored segments switch to their ColorPairs.SELECTED_VARIANT
+    (same foreground, white background) instead - reverse-video would swap
+    fg/bg and wash out the color's hue, and the point of coloring these in
+    the first place is for it to stay visible while selected."""
+    gap = max(1, width - len(leftText) - len(rightText))
+    line = f"{leftText}{' ' * gap}{rightText}"
+    x = centeredX(stdscr, line)
+    _, maxX = stdscr.getmaxyx()
+
+    def clip(text : str, startX : int) -> str:
+        return text[:max(0, maxX - startX)]
+
+    def segAttr(pair : int | None) -> int:
+        if pair is None:
+            return curses.A_REVERSE if selected else curses.A_NORMAL
+        if selected:
+            return curses.color_pair(ColorPairs.SELECTED_VARIANT[pair]) | curses.A_BOLD
+        return curses.color_pair(pair)
+
+    if leftClipped := clip(leftText, x):
+        pad.addstr(y, x, leftClipped, segAttr(leftPair))
+    gapX = x + len(leftText)
+    if gapClipped := clip(' ' * gap, gapX):
+        pad.addstr(y, gapX, gapClipped, curses.A_REVERSE if selected else curses.A_NORMAL)
+    rightX = gapX + gap
+    if rightClipped := clip(rightText, rightX):
+        pad.addstr(y, rightX, rightClipped, segAttr(rightPair))
+    return y + 1
+
 def printCharSlot(stdscr : curses.window,
                   pad : curses.window,
                   y : int,
                   char : CharListData,
                   attr : int) -> int:
-    str1 = f" {char.charID:<3} - {idToClass(char.objectType):<11} - LVL {char.currentLevel:} "
-    str2 = f" Current Fame: {char.currentFame :<9} - {'Seasonal' if char.isSeasonal else 'Standard'} "
+    nameText = f" {idToClass(char.objectType)}"
+    levelText = f"LVL {char.currentLevel:2} "
+    fameText = f" {char.currentFame}"
+    seasonalText = f"{'Seasonal' if char.isSeasonal else 'Standard'} "
     str3 = f" {char.equipmentList[0]:5} - {char.equipmentList[1]:5} - {char.equipmentList[2]:5} - {char.equipmentList[3]:5} "
-    maxLength = max(len(str1),len(str2),len(str3))
 
-    y = drawCenteredText(stdscr, pad, y, f"{str1:<{maxLength}}", attr)
-    y = drawCenteredText(stdscr, pad, y, f"{str2:<{maxLength}}", attr)
-    y = drawCenteredText(stdscr, pad, y, f"{str3:<{maxLength}}", attr)
+    cardWidth = max(
+        len(nameText) + len(levelText) + 1,
+        len(fameText) + len(seasonalText) + 1,
+        len(str3),
+    )
+
+    selected = attr == curses.A_REVERSE
+    namePair = ColorPairs.CRUCIBLE if char.isInCrucible else None
+    seasonalPair = ColorPairs.SEASONAL if char.isSeasonal else ColorPairs.STANDARD
+
+    y = _printSplitRow(stdscr, pad, y, nameText, levelText, cardWidth, namePair, None, selected)
+    y = _printSplitRow(stdscr, pad, y, fameText, seasonalText, cardWidth, ColorPairs.FAME, seasonalPair, selected)
+    y = drawCenteredText(stdscr, pad, y, f"{str3:<{cardWidth}}", attr)
     return y + 1
 
 def printBackSlot(stdscr : curses.window,
