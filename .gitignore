@@ -219,6 +219,10 @@ __marimo__/
 
 # Ignoring json files because they contain user info
 *.json
+# ...except the generated render map itself, which is tracked output of
+# Scripts/AssetPipeline (renderMapOverrides.json intentionally stays
+# ignored - see Resources/renderMapOverrides.jsonEXAMPLE)
+!Resources/renderMap.json
 
 # Personal Claude Code instructions, not shared with the team
 CLAUDE.local.md
@@ -226,3 +230,8 @@ CLAUDE.local.md
 # Asset pipeline: per-machine install path cache and raw extracted assets
 Scripts/AssetPipeline/.installPath.txt
 Resources/_generated/
+
+# Superseded by Scripts/AssetPipeline (regenerated into Resources/_generated/ instead)
+Resources/ground.xml
+Resources/object.xml
+Resources/misc.xml
