@@ -1,8 +1,137 @@
+import socket
+import struct
+import queue
+import time
+
+import Constants.PacketIds as PacketIds
+import Networking.Reader as Reader
+import Networking.PacketHelper as PacketHelper
+import Crypto.RC4 as RC4
+import Crypto.rotmg_keys as rotmg_keys
+from Data.MoveRecord import MoveRecord
+from Networking.Ticker import Ticker
+
+HEADERSIZE = 5
 
 
 class Listener:
-    def __init__(self) -> None:
-        pass
+    """Owns the read side of the game socket. Decodes every packet inline and,
+    for the handful of packet types that need a fast protocol-level reply, sends
+    that reply immediately from this thread (via the outbound queue) instead of
+    waiting on the render loop - that's the anti-lag rule the server's ack
+    timeouts require."""
+
+    def __init__(
+        self,
+        sock: socket.socket,
+        incomingQueue: "queue.Queue",
+        outgoingQueue: "queue.Queue",
+        ticker: Ticker,
+        connectedTime: int,
+    ) -> None:
+        self.sock = sock
+        self.incomingQueue = incomingQueue
+        self.outgoingQueue = outgoingQueue
+        self.ticker = ticker
+        self.connectedTime = connectedTime
+        self.reader = Reader.Reader()
+        self.decoder = RC4.RC4(rotmg_keys.INCOMING_KEY)
+        self.objectId = -1
+        self.active = True
 
     def start(self):
-        pass
+        while self.active:
+            try:
+                header = self._recvExact(HEADERSIZE)
+                if header is None:
+                    break
+                size = struct.unpack("!i", header[:4])[0]
+                packetId = header[4]
+                body = self._recvExact(size - HEADERSIZE)
+                if body is None:
+                    break
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                break
+
+            body = self.decoder.process(body)
+
+            try:
+                packetType = PacketIds.idToType[packetId]
+            except KeyError:
+                continue
+            if "UNKNOWN" in packetType:
+                continue
+            try:
+                packet = PacketHelper.createPacket(packetType)
+            except ValueError:
+                continue
+
+            self.reader.reset(header + body)
+            packet.read(self.reader)
+            self._handlePacket(packet)
+
+    def stop(self):
+        self.active = False
+
+    def _recvExact(self, length):
+        data = bytearray()
+        while len(data) < length:
+            chunk = self.sock.recv(length - len(data))
+            if not chunk:
+                return None
+            data.extend(chunk)
+        return bytes(data)
+
+    def _getTime(self) -> int:
+        return int(time.time() * 1000) - self.connectedTime
+
+    def _handlePacket(self, packet):
+        packetType = packet.type
+
+        if packetType == "RECONNECT":
+            # Actually tearing down/reopening the socket happens elsewhere; the
+            # listener thread can't cleanly join/replace itself.
+            self.incomingQueue.put(("connecting", packet.name))
+            return
+
+        if packetType == "PING":
+            pong = PacketHelper.createPacket("PONG")
+            pong.serial = packet.serial
+            pong.time = self._getTime()
+            self.outgoingQueue.put(pong)
+        elif packetType == "UPDATE":
+            ack = PacketHelper.createPacket("UPDATEACK")
+            self.outgoingQueue.put(ack)
+            for obj in packet.newObjs:
+                if obj.status.objectId == self.objectId:
+                    self.ticker.setPos(obj.status.pos)
+        elif packetType == "GOTO":
+            ack = PacketHelper.createPacket("GOTOACK")
+            ack.time = self._getTime()
+            self.outgoingQueue.put(ack)
+            if packet.objectId == self.objectId:
+                self.ticker.setPos(packet.pos)
+        elif packetType == "SERVERPLAYERSHOOT":
+            if packet.ownerId == self.objectId:
+                ack = PacketHelper.createPacket("SHOOTACK")
+                ack.time = self._getTime()
+                self.outgoingQueue.put(ack)
+        elif packetType == "ENEMYSHOOT":
+            ack = PacketHelper.createPacket("ENEMYSHOOTACK")
+            ack.time = self._getTime()
+            ack.count = min(1, packet.numShots)
+            self.outgoingQueue.put(ack)
+        elif packetType == "NEWTICK":
+            move = PacketHelper.createPacket("MOVE")
+            move.tickId = packet.tickId
+            move.time = packet.serverRealTimeMS
+            records = self.ticker.drainRecords()
+            if len(records) == 0 and self.ticker.pos is not None:
+                # An empty records list gets the client disconnected for lagging.
+                records = [MoveRecord(self.ticker.lastFrameTime, self.ticker.pos.x, self.ticker.pos.y)]
+            move.records = records
+            self.outgoingQueue.put(move)
+        elif packetType == "CREATESUCCESS":
+            self.objectId = packet.objectId
+
+        self.incomingQueue.put(packet)
