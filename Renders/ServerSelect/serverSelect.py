@@ -15,6 +15,8 @@ BACK_TO_CHAR = "Return to Char Select"
 
 
 def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Entering serverSelect screen")
 
     stdscr.erase()
     pad = curses.newpad(1500, 500)

@@ -2,7 +2,7 @@ from typing import Dict
 import requests
 import xml.etree.ElementTree as et
 
-def parseServersXML(r : requests.models.Response):
+def parseServersXML(r : requests.models.Response, debugger):
     xmlText = r.text
     root = et.fromstring(xmlText)
     serversDict : Dict[str,str] = {}
@@ -10,10 +10,12 @@ def parseServersXML(r : requests.models.Response):
         nameElem = server.find("Name")
         dnsElem  = server.find("DNS")
         if nameElem is None or dnsElem is None:
+            debugger.warning("Skipped <Server> element missing Name/DNS")
             continue
         name = nameElem.text
         dns  = dnsElem.text
         if name is None or dns is None:
+            debugger.warning("Skipped <Server> element with empty Name/DNS")
             continue
         serversDict[name] = dns
     return serversDict

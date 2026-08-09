@@ -15,6 +15,8 @@ STATS_WIDTH = 25  # fixed width for the name/level and fame/seasonal rows
 
 
 def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Entering charSelect screen")
 
     stdscr.erase()
     pad = curses.newpad(1500 ,500)

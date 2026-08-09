@@ -235,3 +235,6 @@ Resources/_generated/
 Resources/ground.xml
 Resources/object.xml
 Resources/misc.xml
+
+# Runtime debug log (RotatingFileHandler output + rotated backups)
+Debug/debug.txt*

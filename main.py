@@ -12,12 +12,14 @@ from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
 from Constants.Screen import Screen
 from Constants import ColorPairs
 from Models.Context import Context
+from Debug.Debugger import Debugger
 
 import curses, sys, traceback
 
 #accessToken,clientToken = getAccessAndClientToken(accounts[0])[1]
 
-def main(stdscr : curses.window):
+def main(stdscr : curses.window, debugger : Debugger):
+    debugger.info("App started")
     curses.curs_set(0) # Makes the cursor disappear
     curses.start_color()
     curses.init_pair(ColorPairs.DEFAULT, curses.COLOR_WHITE, curses.COLOR_BLACK)
@@ -32,7 +34,7 @@ def main(stdscr : curses.window):
     stdscr.bkgd(" ", curses.color_pair(ColorPairs.DEFAULT))
 
     screen = Screen.accountSelect
-    ctx : Context = {}  # shared data screens pass forward
+    ctx : Context = {"DEBUGGER": debugger}  # shared data screens pass forward
     handlers = {
         Screen.accountSelect: drawAccountSelect,
         Screen.enterAccountInfo: enterAccountInfo,
@@ -45,11 +47,18 @@ def main(stdscr : curses.window):
         stdscr.erase()
         screen = handlers[screen](stdscr, ctx)
 
+    debugger.info("App exited normally")
+
 if __name__ == "__main__":
+    debugger = Debugger()
     try:
-        curses.wrapper(main)
+        curses.wrapper(main, debugger)
     except Exception:
         # curses.wrapper already restored the terminal by this point, so it's
         # safe to print straight to the now-normal stdout/stderr.
+        debugger.exception("Unhandled exception escaped curses.wrapper")
         traceback.print_exc()
+        debugger.stop()
         sys.exit(1)
+    else:
+        debugger.stop()

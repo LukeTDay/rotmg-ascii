@@ -28,12 +28,14 @@ class Listener:
         outgoingQueue: "queue.Queue",
         ticker: Ticker,
         connectedTime: int,
+        debugger,
     ) -> None:
         self.sock = sock
         self.incomingQueue = incomingQueue
         self.outgoingQueue = outgoingQueue
         self.ticker = ticker
         self.connectedTime = connectedTime
+        self.debugger = debugger
         self.reader = Reader.Reader()
         self.decoder = RC4.RC4(rotmg_keys.INCOMING_KEY)
         self.objectId = -1
@@ -64,6 +66,7 @@ class Listener:
             try:
                 packet = PacketHelper.createPacket(packetType)
             except ValueError:
+                self.debugger.warning(f"Received unknown/unhandled packet type: {packetType}")
                 continue
 
             self.reader.reset(header + body)
@@ -89,6 +92,7 @@ class Listener:
         packetType = packet.type
 
         if packetType == "RECONNECT":
+            self.debugger.info(f"RECONNECT received - moving to {packet.name}")
             # Actually tearing down/reopening the socket happens elsewhere; the
             # listener thread can't cleanly join/replace itself.
             self.incomingQueue.put(("connecting", packet.name))
@@ -133,5 +137,8 @@ class Listener:
             self.outgoingQueue.put(move)
         elif packetType == "CREATESUCCESS":
             self.objectId = packet.objectId
+            self.debugger.info(f"CREATESUCCESS received - objectId={packet.objectId}")
+        elif packetType == "FAILURE":
+            self.debugger.error(f"FAILURE received: {packet.errorDescription}")
 
         self.incomingQueue.put(packet)

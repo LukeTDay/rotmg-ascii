@@ -1,7 +1,7 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText, figletLineCount
-from Models.Context import Context
+from Models.Context import Context, required
 
 import curses, json
 
@@ -9,10 +9,13 @@ ROWS_PER_SLOT = 2  # 1 text row + 1 blank spacer row
 
 
 def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Entering accountSelect screen")
 
     try:
         storedAccounts = credential_loader()
     except json.JSONDecodeError as e:
+        debugger.exception("Failed to parse Credentials/account_credentials.json")
         stdscr.erase()
         pad = curses.newpad(1500, 500)
         pad.keypad(True)
@@ -25,6 +28,7 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         pad.getch()
         return Screen.exit
     except FileNotFoundError:
+        debugger.info("No account_credentials.json found - redirecting to enterAccountInfo")
         return Screen.enterAccountInfo
     if len(storedAccounts) == 0:
         return Screen.enterAccountInfo

@@ -12,6 +12,9 @@ import curses, threading, queue, time
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Entering gameScreen")
+
     stdscr.erase()
     pad = curses.newpad(1500, 500)
 
@@ -32,6 +35,7 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
 
 
 def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen | None:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     resultQueue: queue.Queue = queue.Queue()
     connectThread = threading.Thread(target=connectToGame, args=(ctx, resultQueue), daemon=True)
     connectThread.start()
@@ -51,6 +55,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
 
     result = resultQueue.get()
     if not result[0]:
+        debugger.warning(f"Connection to game server failed: {result[1]}")
         pad.move(0, 0)
         pad.clrtobot()
         y = drawCenteredBanner(stdscr, pad, 0, "Failed")
@@ -61,6 +66,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
         return Screen.charSelect
 
     _, listener, sender, ticker, incomingQueue, outgoingQueue = result
+    debugger.info("Connected to game server, worker threads starting")
 
     ctx["TICKER"] = ticker
     ctx["LISTENER"] = listener
@@ -87,6 +93,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
 
 
 def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen | None:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
     outgoingQueue = required(ctx.get("OUTGOINGQUEUE"), "OUTGOINGQUEUE")
     mapName = ""
@@ -109,6 +116,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                 packetType = event.type
                 if packetType == "MAPINFO":
                     mapName = event.name
+                    debugger.info(f"MAPINFO received: {mapName}")
                     load = PacketHelper.createPacket("LOAD")
                     load.charId = required(ctx.get("CURR_CHAR_ID"), "CURR_CHAR_ID")
                     load.isFromArena = False
@@ -116,6 +124,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                 elif packetType == "FAILURE":
                     return _handleFailure(stdscr, pad, ctx, event)
                 elif packetType == "CREATESUCCESS":
+                    debugger.info(f"CREATESUCCESS - handshake complete, objectId={event.objectId}")
                     return None
         except queue.Empty:
             pass
@@ -145,6 +154,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
 
 
 def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, packet) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.error(f"Disconnected from game server: {packet.errorDescription}")
     listener = ctx.get("LISTENER")
     sender = ctx.get("SENDER")
     ticker = ctx.get("TICKER")

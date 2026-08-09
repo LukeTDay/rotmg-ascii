@@ -5,6 +5,7 @@ from Models.CharListData import CharListData
 from Networking.Ticker import Ticker
 from Networking.Listener import Listener
 from Networking.Sender import Sender
+from Debug.Debugger import Debugger
 
 import queue
 
@@ -31,6 +32,7 @@ class Context(TypedDict, total=False):
     SENDER : Sender
     INCOMINGQUEUE : queue.Queue
     OUTGOINGQUEUE : queue.Queue
+    DEBUGGER : Debugger
 
 
 T = TypeVar("T")

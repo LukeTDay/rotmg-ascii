@@ -1,13 +1,16 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from authentication.getAccessAndClientToken import getAccessAndClientToken
-from Models.Context import Context, AccountData
+from Models.Context import Context, AccountData, required
 
 import curses, json, time, os, tempfile, threading, queue, pyfiglet
 from typing import List
 
 
 def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Entering enterAccountInfo screen")
+
     try:
         storedAccounts = credential_loader()
     except FileNotFoundError:
@@ -106,6 +109,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             assert password is not None, "Password should never be None here"
             break
         else:
+            debugger.warning("Password confirmation did not match")
             yIndex += 1
             drawCenteredText(stdscr,pad,yIndex,"Password's did not match")
             determineRefreshWindow(stdscr,pad,yIndex)
@@ -139,7 +143,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         "password"  : password
     }
 
-    thread = threading.Thread(target=verifyWorker, args=(credentialDict, resultQueue), daemon=True)
+    thread = threading.Thread(target=verifyWorker, args=(credentialDict, resultQueue, debugger), daemon=True)
     thread.start()
 
     buf : List[str] = []
@@ -159,6 +163,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     if not success[0]:
         errReason = success[1]
         errText = success[2]
+        debugger.warning(f"Account verify failed ({errReason}): {errText}")
         if errReason == "TOKEN_ERROR":
             pad.clrtobot()
             drawCenteredText(stdscr,pad,yIndex, "There was an issue loading your token")
@@ -183,6 +188,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         pad.getch()
         return Screen.enterAccountInfo
 
+    debugger.info("Account successfully verified")
     pad.clrtobot()
     drawCenteredText(stdscr,pad,yIndex, "Account successfully verified.")
     determineRefreshWindow(stdscr,pad,yIndex)
@@ -210,6 +216,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             shouldRecreate = False
             for account in storedAccounts:
                 if account["alias"] == alias:
+                    debugger.warning(f"Alias '{alias}' already in use")
                     yIndex += 1
                     drawCenteredText(stdscr,pad,yIndex,f"{alias} is already in use. You must choose another one")
                     determineRefreshWindow(stdscr,pad,yIndex)
@@ -241,6 +248,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         try:
             os.mkdir("Credentials")
         except PermissionError:
+            debugger.exception("No permission to create Credentials/ directory")
             yIndex += 2
             drawCenteredText(stdscr,pad,yIndex,"Credentials directory does not exist and insufficient "
             "permission to create a new one. Please create the directory yourself or run "
@@ -252,6 +260,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             pad.getch()
             return Screen.exit
         except Exception as e:
+            debugger.exception("Unexpected error creating Credentials/ directory")
             yIndex += 2
             drawCenteredText(stdscr,pad,yIndex,"Unexpected error occured when trying to create a directory to store the credentials.")
             determineRefreshWindow(stdscr,pad,yIndex)
@@ -421,10 +430,11 @@ def getAlias(stdscr : curses.window,
         determineRefreshWindow(stdscr,pad,yIndex)
     return ''.join(buf)
 
-def verifyWorker(credentialDict, resultQueue) -> None:
+def verifyWorker(credentialDict, resultQueue, debugger) -> None:
     try:
-        outcome = getAccessAndClientToken(credentialDict)
+        outcome = getAccessAndClientToken(credentialDict, debugger)
     except Exception as e:
+        debugger.exception("Unexpected error verifying account")
         outcome = (False, "UNEXPECTED_ERROR", f"Unexpected error: {e}")
     resultQueue.put(outcome)
 

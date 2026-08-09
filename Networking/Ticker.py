@@ -21,8 +21,9 @@ class Ticker:
     10Hz clock, independent of the network and render loop - never touches the
     socket or either queue itself."""
 
-    def __init__(self, connectedTime: int) -> None:
+    def __init__(self, connectedTime: int, debugger) -> None:
         self.connectedTime = connectedTime
+        self.debugger = debugger
         self.pos: WorldPosData | None = None
         self.target: WorldPosData | None = None
         self.records: list[MoveRecord] = []
@@ -32,11 +33,13 @@ class Ticker:
         self.active = True
 
     def start(self):
+        self.debugger.info("Ticker started")
         self._timer = RepeatTimer(TICK_INTERVAL, self._tick)
         self._timer.daemon = True
         self._timer.start()
 
     def stop(self):
+        self.debugger.info("Ticker stopped")
         self.active = False
         if self._timer is not None:
             self._timer.cancel()

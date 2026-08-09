@@ -2,7 +2,7 @@ from Models.CharListData import CharListData
 import requests
 import xml.etree.ElementTree as et
 
-def parseCharList(r : requests.models.Response):
+def parseCharList(r : requests.models.Response, debugger):
     xmlText = r.text
     root = et.fromstring(xmlText)
 
@@ -17,6 +17,7 @@ def parseCharList(r : requests.models.Response):
 
         if (charIDElement is None or objectTypeElement is None or isSeasonalElement is None
                 or currentFameElement is None or levelElement is None or equipmentElement is None):
+            debugger.warning("Skipped <Char> element missing a required field")
             continue
 
         objectTypeText = objectTypeElement.text
@@ -27,6 +28,7 @@ def parseCharList(r : requests.models.Response):
 
         if (objectTypeText is None or isSeasonalText is None or currentFameText is None
                 or levelText is None or equipmentText is None):
+            debugger.warning(f"Skipped <Char id={charIDElement}> element with an empty required field")
             continue
 
         charID = int(charIDElement)

@@ -19,6 +19,9 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     from backend API endpoints.
     """
 
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Entering login screen")
+
     #Erasing the screen before making the pad
     stdscr.erase()
     pad = curses.newpad(1500 ,500)
@@ -34,7 +37,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     currentAccount = required(ctx.get("account"), "account")
 
     resultQueue = queue.Queue()
-    tokenThread = threading.Thread(target=verifyWorker, args=(currentAccount, resultQueue), daemon=True)
+    tokenThread = threading.Thread(target=verifyWorker, args=(currentAccount, resultQueue, debugger), daemon=True)
     tokenThread.start()
 
     buf : List[str] = []
@@ -55,6 +58,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     if not success[0]:
         errReason = success[1]
         errText = success[2]
+        debugger.warning(f"Login verify failed ({errReason}): {errText}")
         pad.move(0,0)
         pad.clrtobot()
         if errReason == "TOKEN_ERROR":
@@ -73,6 +77,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
         pad.getch()
         return Screen.accountSelect
 
+    debugger.info("Account token verified")
     pad.move(0,0)
     pad.clrtobot()
     yIndex = drawCenteredBanner(stdscr, pad, 0, "Verified")
@@ -115,8 +120,10 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     time.sleep(2)
 
     if moveOn:
+        debugger.info("Login complete - proceeding to charSelect")
         return Screen.charSelect
     else:
+        debugger.warning("Login data gathering failed - returning to accountSelect")
         yIndex = drawCenteredText(stdscr, pad, yIndex + 2, "There was an error when fetching information about your account. Exiting to account selection")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(3)
@@ -130,15 +137,16 @@ def checkThreads(threadList : List[threading.Thread]) -> bool:
     return result
 
 def parseHandler(ctx : Context, result) -> None:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     match result[1]:
         case "FRIENDSLIST":
-            ctx["FRIENDSLIST"] = parseFriendsList(result[2])
+            ctx["FRIENDSLIST"] = parseFriendsList(result[2], debugger)
         case "GUILDMEMBERS":
-            ctx["GUILDMEMBERS"] = parseGuildMembers(result[2])
+            ctx["GUILDMEMBERS"] = parseGuildMembers(result[2], debugger)
         case "CHARLIST":
-            ctx["CHARLIST"] = parseCharList(result[2])
+            ctx["CHARLIST"] = parseCharList(result[2], debugger)
         case "SERVERS":
-            ctx["SERVERS"] = parseServersXML(result[2])
+            ctx["SERVERS"] = parseServersXML(result[2], debugger)
 
 def gatherData(ctx : Context,
                queue : queue.Queue) -> List[threading.Thread]:
@@ -156,6 +164,7 @@ def gatherFriend(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=FRIENDSLIST, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
+        required(ctx.get("DEBUGGER"), "DEBUGGER").exception("Failed to fetch FRIENDSLIST")
         outcome = (False, FRIENDSLIST, "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "FRIENDSLIST", outcome))
 
@@ -163,6 +172,7 @@ def gatherGuild(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=GUILDMEMBERS, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
+        required(ctx.get("DEBUGGER"), "DEBUGGER").exception("Failed to fetch GUILDMEMBERS")
         outcome = (False, "GUILDMEMBERS", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "GUILDMEMBERS", outcome))
 
@@ -170,6 +180,7 @@ def gatherChar(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=CHAR, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
+        required(ctx.get("DEBUGGER"), "DEBUGGER").exception("Failed to fetch CHARLIST")
         outcome = (False, "CHARLIST", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "CHARLIST", outcome))
 
@@ -177,6 +188,7 @@ def gatherServer(ctx : Context, queue : queue.Queue):
     try:
         outcome = requests.post(url=SERVERS, params={"accessToken" : required(ctx.get("accessToken"), "accessToken")})
     except Exception as e:
+        required(ctx.get("DEBUGGER"), "DEBUGGER").exception("Failed to fetch SERVERS")
         outcome = (False, "SERVERS", "UNEXPECTED_ERROR", f"Unexpected Error: {e}")
     queue.put((True, "SERVERS", outcome))
     

@@ -8,7 +8,7 @@ import re
 TokenSuccess = Tuple[Literal[True], Tuple[str, str]]
 TokenFailure = Tuple[Literal[False], str, str]
 
-def getAccessAndClientToken(accountDict : Dict[str,str]) -> Union[TokenSuccess, TokenFailure]:
+def getAccessAndClientToken(accountDict : Dict[str,str], debugger) -> Union[TokenSuccess, TokenFailure]:
     email     : str = accountDict["email"]
     password  : str = accountDict["password"]
     clientToken : str = md5((email.encode("utf-8") + password.encode("utf-8"))).hexdigest()
@@ -21,6 +21,7 @@ def getAccessAndClientToken(accountDict : Dict[str,str]) -> Union[TokenSuccess, 
     try:
         accessToken = re.findall(pattern, r.text)[0]
     except IndexError as e:
+        debugger.warning(f"Token parse failed (likely incorrect email/password): {e}")
         return(False, "TOKEN_ERROR", f"{e}")
 
     r = requests.post(ApiPoints.VERIFYTOKEN, data={"clientToken": clientToken,
@@ -28,6 +29,7 @@ def getAccessAndClientToken(accountDict : Dict[str,str]) -> Union[TokenSuccess, 
                                                            "game_net": "Unity", "play_platform": "Unity", "game_net_user_id": ""}, headers=ApiPoints.launcherHeaders)
 
     if not "Success" in r.text:
+        debugger.warning(f"Token verification failed: {r.text}")
         return (False, "VERIFY_TOKEN_ERROR", f"Error when verfiying token {r.text}")
 
     return (True, (accessToken,clientToken))
