@@ -13,9 +13,9 @@ from Networking.Listener import Listener
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow
 
 BAR_WIDTH = 20
-# Roomy enough for "HP  [<20-char bar>] 9999/9999" (~36 chars) plus the
-# 2-column gap between the map area and the HUD - see _drawHud's hudCol.
-HUD_WIDTH_COLS = 40
+# The bar itself (BAR_WIDTH) plus the 2-column gap between the map area and
+# the HUD - see _drawHud's hudCol - and a little right-side margin.
+HUD_WIDTH_COLS = BAR_WIDTH + 4
 
 
 def computeScale(stdscr: curses.window) -> Tuple[int, int, int]:
@@ -60,14 +60,32 @@ def _drawMap(pad: curses.window, scale: int, mapAreaRows: int, mapAreaCols: int,
 
 
 def _drawBar(pad: curses.window, row: int, col: int, label: str, current: int, maximum: int,
-             fillPair: int, width: int = BAR_WIDTH) -> None:
+             fillPair: int, emptyPair: int, width: int = BAR_WIDTH) -> None:
+    """Old-school RPG bar: the label/numbers are centered *inside* the bar
+    itself rather than beside it - black text over a solid color background
+    where the bar is filled (`fillPair`), the same stat color as plain text
+    on the default background where it isn't (`emptyPair`)."""
     filled = 0 if maximum <= 0 else round(width * max(0, min(current, maximum)) / maximum)
     filled = max(0, min(width, filled))
+    text = f"{label} {current}/{maximum}"[:width].center(width)
     try:
-        pad.addstr(row, col, f"{label:<4}[", curses.color_pair(ColorPairs.DEFAULT))
-        pad.addstr(row, col + 5, "█" * filled, curses.color_pair(fillPair))
-        pad.addstr(row, col + 5 + filled, "░" * (width - filled), curses.color_pair(ColorPairs.DEFAULT))
-        pad.addstr(row, col + 5 + width, f"] {current}/{maximum}", curses.color_pair(ColorPairs.DEFAULT))
+        if filled > 0:
+            pad.addstr(row, col, text[:filled], curses.color_pair(fillPair))
+        if filled < width:
+            pad.addstr(row, col + filled, text[filled:], curses.color_pair(emptyPair))
+    except curses.error:
+        pass
+
+
+def _drawSolidBar(pad: curses.window, row: int, col: int, value: int,
+                   fillPair: int, width: int = BAR_WIDTH) -> None:
+    """Same box look as _drawBar, but always fully "filled" - for a stat like
+    fame that has no reliable max to be proportional against. Black text
+    (just the number, no label/max) over a solid color background across
+    the whole box."""
+    text = str(value)[:width].center(width)
+    try:
+        pad.addstr(row, col, text, curses.color_pair(fillPair))
     except curses.error:
         pass
 
@@ -75,15 +93,18 @@ def _drawBar(pad: curses.window, row: int, col: int, label: str, current: int, m
 def _drawHud(stdscr: curses.window, pad: curses.window, player: PlayerData, mapAreaCols: int) -> None:
     maxY, _ = stdscr.getmaxyx()
     hudCol = mapAreaCols + 2
-    barRows = (0, 2, 4)  # HP, MP, Fame - 2 rows apart
+    barRows = (0, 2, 4)  # Fame, HP, MP - 2 rows apart
     hudHeight = barRows[-1] + 1
     startRow = max(0, (maxY - hudHeight) // 2)
-    _drawBar(pad, startRow + barRows[0], hudCol, "HP", player.hp, player.maxHp, ColorPairs.MAP_RED)
-    _drawBar(pad, startRow + barRows[1], hudCol, "MP", player.mp, player.maxMp, ColorPairs.MAP_BLUE)
-    try:
-        pad.addstr(startRow + barRows[2], hudCol, f"Fame  {player.fame}", curses.color_pair(ColorPairs.MAP_YELLOW))
-    except curses.error:
-        pass
+    # nextClassQuestFame is -1 whenever a class has no further quest reward
+    # (e.g. already at max legendary rank), so it can't reliably be used as
+    # a bar's max - draw fame as a solid box (same look as HP/MP) instead of
+    # a proportional fill.
+    _drawSolidBar(pad, startRow + barRows[0], hudCol, player.fame, ColorPairs.FILL_YELLOW)
+    _drawBar(pad, startRow + barRows[1], hudCol, "HP", player.hp, player.maxHp,
+             ColorPairs.FILL_RED, ColorPairs.MAP_RED)
+    _drawBar(pad, startRow + barRows[2], hudCol, "MP", player.mp, player.maxMp,
+             ColorPairs.FILL_BLUE, ColorPairs.MAP_BLUE)
 
 
 def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, player: PlayerData,

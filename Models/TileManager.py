@@ -15,6 +15,9 @@ VIEW_RADIUS_TILES = 15  # tunable: number of real world tiles rendered on each s
 _PLACEHOLDER_PROJECTILE_CHAR = "*"
 _PLACEHOLDER_PROJECTILE_COLOR = "WHITE"
 
+_SELF_CHAR = "@"
+_SELF_FALLBACK_COLOR = "WHITE"
+
 
 class Tier(Enum):
     SELF = auto()
@@ -88,6 +91,17 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
 
     now = time.time()
     for proj in projectiles.projectiles.values():
+        # A bullet only matters if it's dangerous to us (an enemy's) or is
+        # our own - not another player's, friend/guild or otherwise (e.g. a
+        # stranger cosmetically shooting their bow in the Nexus, where
+        # there's no combat but the shoot packets still go out anyway).
+        owner = state.objects.get(proj.ownerId)
+        if owner is None:
+            continue
+        ownerInfo = objectRenderInfo(owner.objectType)
+        ownerTier = classifyObject(owner, listenerObjectId, ownerInfo, friendsAndGuild)
+        if ownerTier not in (Tier.SELF, Tier.ENEMY):
+            continue
         pos = proj.posAt(now)
         tileX, tileY = math.floor(pos.x), math.floor(pos.y)
         if not (minX <= tileX <= maxX and minY <= tileY <= maxY):
@@ -120,6 +134,10 @@ def _resolveCell(key: Tuple[int, int],
             return RenderCell(char=_PLACEHOLDER_PROJECTILE_CHAR, colorName=_PLACEHOLDER_PROJECTILE_COLOR)
         winnerObj = occupants[0]
         info = objectRenderInfo(winnerObj.objectType)
+        if tier == Tier.SELF:
+            # Always a fixed '@' regardless of class sprite - the player is
+            # always screen-center, so it needs to read as "you" at a glance.
+            return RenderCell(char=_SELF_CHAR, colorName=info.color if info is not None else _SELF_FALLBACK_COLOR)
         if info is None or not info.chars:
             return None
         return RenderCell(char=info.chars[0], colorName=info.color)

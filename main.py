@@ -39,6 +39,9 @@ def main(stdscr : curses.window, debugger : Debugger):
     curses.init_pair(ColorPairs.MAP_MAGENTA, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
     curses.init_pair(ColorPairs.MAP_CYAN, curses.COLOR_CYAN, curses.COLOR_BLACK)
     curses.init_pair(ColorPairs.MAP_WHITE, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    curses.init_pair(ColorPairs.FILL_RED, curses.COLOR_BLACK, curses.COLOR_RED)
+    curses.init_pair(ColorPairs.FILL_BLUE, curses.COLOR_BLACK, curses.COLOR_BLUE)
+    curses.init_pair(ColorPairs.FILL_YELLOW, curses.COLOR_BLACK, curses.COLOR_YELLOW)
     stdscr.bkgd(" ", curses.color_pair(ColorPairs.DEFAULT))
 
     screen = Screen.accountSelect

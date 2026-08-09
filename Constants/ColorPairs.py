@@ -47,3 +47,10 @@ MAP_COLOR_TO_PAIR = {
     "CYAN": MAP_CYAN,
     "WHITE": MAP_WHITE,
 }
+
+# "On-color" fill variants for the HUD's HP/MP/Fame bars: black text over a
+# solid color background, used for the filled portion of each bar so the
+# label/numbers sit inside the bar itself instead of beside it.
+FILL_RED = 18
+FILL_BLUE = 19
+FILL_YELLOW = 20
