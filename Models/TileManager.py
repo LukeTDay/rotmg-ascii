@@ -144,8 +144,13 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
         tier: {} for tier in Tier
     }
 
+    now = time.time()
     for obj in state.objects.values():
-        tileX, tileY = math.floor(obj.pos.x), math.floor(obj.pos.y)
+        # The local player's own entry is already smoothed to ticker.pos by
+        # the caller each frame (see mapRenderer.drawFrame) - only other
+        # objects need dead-reckoning between NEWTICK packets.
+        pos = obj.pos if obj.objectId == listenerObjectId else obj.renderPos(now)
+        tileX, tileY = math.floor(pos.x), math.floor(pos.y)
         if not (minX <= tileX <= maxX and minY <= tileY <= maxY):
             continue
         info = objectRenderInfo(obj.objectType)
@@ -154,7 +159,6 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
             continue
         perTile[tier].setdefault((tileX, tileY), []).append(obj)
 
-    now = time.time()
     for proj in projectiles.projectiles.values():
         # A bullet only matters if it's dangerous to us (an enemy's) or is
         # our own - not another player's, friend/guild or otherwise (e.g. a
