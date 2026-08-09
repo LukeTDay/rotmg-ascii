@@ -125,6 +125,9 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                     return _handleFailure(stdscr, pad, ctx, event)
                 elif packetType == "CREATESUCCESS":
                     debugger.info(f"CREATESUCCESS - handshake complete, objectId={event.objectId}")
+                    showAllyShoot = PacketHelper.createPacket("SHOWALLYSHOOT")
+                    showAllyShoot.toggle = 0
+                    outgoingQueue.put(showAllyShoot)
                     return None
         except queue.Empty:
             pass
