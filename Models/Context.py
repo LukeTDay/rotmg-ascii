@@ -25,6 +25,7 @@ class Context(TypedDict, total=False):
     GUILDMEMBERS: Set[str]
     SERVERS: Dict[str, str]
     CURR_CHAR_ID: int
+    CURR_SERVER: str
     TICKER : Ticker
     LISTENER : Listener
     SENDER : Sender

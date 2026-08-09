@@ -75,7 +75,7 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
             if selected == len(loadedChars):
                 return Screen.accountSelect
             ctx["CURR_CHAR_ID"] = loadedChars[selected].charID
-            return Screen.gameScreen
+            return Screen.serverSelect
 
 def _printSplitRow(stdscr : curses.window,
                    pad : curses.window,

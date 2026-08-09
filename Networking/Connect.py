@@ -14,8 +14,7 @@ def connectToGame(ctx: Context, resultQueue: "queue.Queue") -> None:
     """Runs on a daemon thread - opens the game socket and builds the worker
     objects, but never starts their threads or touches ctx/curses itself."""
     try:
-        servers = required(ctx.get("SERVERS"), "SERVERS")
-        host = next(iter(servers.values()))
+        host = required(ctx.get("CURR_SERVER"), "CURR_SERVER")
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((host, PORT))
