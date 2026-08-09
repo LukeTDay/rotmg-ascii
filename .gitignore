@@ -222,3 +222,7 @@ __marimo__/
 
 # Personal Claude Code instructions, not shared with the team
 CLAUDE.local.md
+
+# Asset pipeline: per-machine install path cache and raw extracted assets
+Scripts/AssetPipeline/.installPath.txt
+Resources/_generated/
