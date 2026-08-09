@@ -51,6 +51,14 @@ def findGameVersion(install_path: Path) -> str:
 
 
 if __name__ == "__main__":
+    import sys
+
+    _REPO_ROOT = str(Path(__file__).resolve().parents[2])
+    if _REPO_ROOT not in sys.path:
+        # allow running this file directly (`python findVersion.py`), not
+        # just via `python -m Scripts.AssetPipeline.findVersion`
+        sys.path.insert(0, _REPO_ROOT)
+
     from Scripts.AssetPipeline.locateInstall import findInstallPath
 
     path = findInstallPath()

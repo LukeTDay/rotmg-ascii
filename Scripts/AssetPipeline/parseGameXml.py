@@ -27,9 +27,16 @@ in three ways the real extracted data required:
 """
 
 import json
+import sys
 import xml.etree.ElementTree as et
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    # allow running this file directly (`python parseGameXml.py`), not
+    # just via `python -m Scripts.AssetPipeline.parseGameXml`
+    sys.path.insert(0, _REPO_ROOT)
 
 from Scripts.AssetPipeline.spriteIndex import SpriteRect, loadSpriteIndex
 

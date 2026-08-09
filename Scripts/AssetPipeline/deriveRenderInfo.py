@@ -35,10 +35,17 @@ multi-glyph list to a specific id (floors, loot bags, etc.) is Phase 4's
 override file's job, not something guessed here from pixel data.
 """
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    # allow running this file directly (`python deriveRenderInfo.py`), not
+    # just via `python -m Scripts.AssetPipeline.deriveRenderInfo`
+    sys.path.insert(0, _REPO_ROOT)
 
 from Scripts.AssetPipeline.parseGameXml import ParsedEntity, resolveSpriteRects
 from Scripts.AssetPipeline.spriteIndex import AID_TO_SHEET, SpriteRect

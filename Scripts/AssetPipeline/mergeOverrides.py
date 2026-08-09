@@ -21,7 +21,14 @@ just `chars` to reassign a glyph - without having to also copy over the
 """
 
 import json
+import sys
 from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    # allow running this file directly (`python mergeOverrides.py`), not
+    # just via `python -m Scripts.AssetPipeline.mergeOverrides`
+    sys.path.insert(0, _REPO_ROOT)
 
 from Scripts.AssetPipeline.deriveRenderInfo import RenderInfo
 

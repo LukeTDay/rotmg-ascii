@@ -24,9 +24,17 @@ rather than that project's assumptions:
 """
 
 import json
+import sys
 from pathlib import Path
 
 import UnityPy
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    # allow running this file directly (`python extractBundles.py`), not
+    # just via `python -m Scripts.AssetPipeline.extractBundles` from the
+    # repo root - either way, `Scripts.AssetPipeline.*` needs to resolve
+    sys.path.insert(0, _REPO_ROOT)
 
 from Scripts.AssetPipeline.locateInstall import findInstallPath
 
