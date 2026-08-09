@@ -6,7 +6,7 @@ from Utils.XML.parseCharList import parseCharList
 from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
-from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, verifyWorker
+from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText, verifyWorker
 from Models.Context import Context, required
 
 import curses, threading, queue, time, requests,os
@@ -27,9 +27,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     pad.clrtobot()
 
     #yIndex for printing to the pad throughout the function
-    yIndex = 0
-
-    pad.addstr(yIndex,0,"Checking ")
+    yIndex = drawCenteredBanner(stdscr, pad, 0, "Checking")
     determineRefreshWindow(stdscr,pad,yIndex)
 
     #Loading the account so that it can be verified
@@ -41,9 +39,10 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
 
     buf : List[str] = []
     while tokenThread.is_alive():
-        pad.move(yIndex,0)
+        pad.move(0,0)
         pad.clrtobot()
-        pad.addstr(yIndex,0,f"Verifying ROTMG account{''.join(buf)}")
+        yIndex = drawCenteredBanner(stdscr, pad, 0, "Verifying")
+        yIndex = drawCenteredText(stdscr, pad, yIndex + 1, f"ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
         if len(buf) == 5:
@@ -56,32 +55,27 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     if not success[0]:
         errReason = success[1]
         errText = success[2]
+        pad.move(0,0)
+        pad.clrtobot()
         if errReason == "TOKEN_ERROR":
-            pad.clrtobot()
-            pad.addstr(yIndex,0, "There was an issue loading your token")
-            yIndex += 1
-            pad.addstr(yIndex,0,f"Incorrect email or password")
-            determineRefreshWindow(stdscr,pad,yIndex)
+            yIndex = drawCenteredBanner(stdscr, pad, 0, "Token Error")
+            yIndex = drawCenteredText(stdscr, pad, yIndex + 1, "Incorrect email or password")
         elif errReason == "VERIFY_TOKEN_ERROR":
-            pad.clrtobot()
-            pad.addstr(yIndex,0, "There was an issue verifying your token")
-            yIndex += 1
-            pad.addstr(yIndex,0,f"Error Message: {errText}")
-            determineRefreshWindow(stdscr,pad,yIndex)
+            yIndex = drawCenteredBanner(stdscr, pad, 0, "Verify Error")
+            yIndex = drawCenteredText(stdscr, pad, yIndex + 1, f"Error Message: {errText}")
         elif errReason == "UNEXPECTED_ERROR":
-            pad.clrtobot()
-            pad.addstr(yIndex,0, "There was an unexpected error")
-            yIndex += 1
-            pad.addstr(yIndex,0,f"Error Message: {errText}")
-            determineRefreshWindow(stdscr,pad,yIndex)
-        yIndex += 2
-        pad.addstr(yIndex,0,"Please press any key to try again.")
+            yIndex = drawCenteredBanner(stdscr, pad, 0, "Error")
+            yIndex = drawCenteredText(stdscr, pad, yIndex + 1, f"Error Message: {errText}")
+        else:
+            yIndex = 0
+        yIndex = drawCenteredText(stdscr, pad, yIndex + 2, "Please press any key to try again.")
         determineRefreshWindow(stdscr,pad,yIndex)
         pad.getch()
         return Screen.accountSelect
-    
+
+    pad.move(0,0)
     pad.clrtobot()
-    pad.addstr(yIndex,0, "Account successfully verified.")
+    yIndex = drawCenteredBanner(stdscr, pad, 0, "Verified")
     determineRefreshWindow(stdscr,pad,yIndex)
 
     ctx["accessToken"] = success[1][0]
@@ -90,15 +84,15 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     with open("gameVersion.txt", "r", encoding="utf-8") as f:
         ctx["buildVersion"] = f.read().strip()
 
-    yIndex += 2
-
     groupQueue = queue.Queue()
     threadList = gatherData(ctx, groupQueue)
 
-    while checkThreads(threadList): 
-        pad.move(yIndex,0)
+    buf = []
+    while checkThreads(threadList):
+        pad.move(0,0)
         pad.clrtobot()
-        pad.addstr(yIndex,0,f"Gathering the rest of the data{''.join(buf)}")
+        yIndex = drawCenteredBanner(stdscr, pad, 0, "Gathering")
+        yIndex = drawCenteredText(stdscr, pad, yIndex + 1, f"the rest of the data{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
         if len(buf) == 5:
@@ -107,15 +101,14 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
             buf.append(".")
     moveOn = True
     for x in range(len(threadList)):
-        yIndex += 2
+        yIndex += 1
         result = groupQueue.get()
         if not result[0]:
-            pad.addstr(yIndex,0,f"There was an error receiving {result[1]}")
-            yIndex += 1
-            pad.addstr(yIndex,0,f"Error: {result[2]}")
+            yIndex = drawCenteredText(stdscr, pad, yIndex, f"There was an error receiving {result[1]}")
+            yIndex = drawCenteredText(stdscr, pad, yIndex, f"Error: {result[2]}")
             moveOn = False
         elif result[0]:
-            pad.addstr(yIndex, 0, f"Recevied {result[1]}")
+            yIndex = drawCenteredText(stdscr, pad, yIndex, f"Received {result[1]}")
             parseHandler(ctx, result)
         determineRefreshWindow(stdscr,pad,yIndex)
 
@@ -124,8 +117,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     if moveOn:
         return Screen.charSelect
     else:
-        yIndex += 2
-        pad.addstr(yIndex,0,"There was an error when fetching information about your account. Exiting to account selection")
+        yIndex = drawCenteredText(stdscr, pad, yIndex + 2, "There was an error when fetching information about your account. Exiting to account selection")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(3)
         return Screen.accountSelect
