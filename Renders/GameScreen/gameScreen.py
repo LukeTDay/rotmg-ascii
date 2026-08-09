@@ -11,6 +11,7 @@ from Networking.Connect import connectToGame
 import Networking.PacketHelper as PacketHelper
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
+from Renders.GameScreen.mapRenderer import drawFrame
 
 from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader
 
@@ -175,12 +176,6 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
     projectiles = ProjectileStore()
     projectileMap = projectileMapLoader()
 
-    pad.move(0, 0)
-    pad.clrtobot()
-    y = drawCenteredBanner(stdscr, pad, 0, "Connected")
-    y = drawCenteredText(stdscr, pad, y + 1, "(map rendering not implemented yet)")
-    determineRefreshWindow(stdscr, pad, y)
-
     while True:
         try:
             while True:
@@ -217,6 +212,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         except queue.Empty:
             pass
         projectiles.prune()
+        drawFrame(stdscr, pad, state, player, projectiles, listener, ctx)
         pad.getch()
         time.sleep(0.05)
 

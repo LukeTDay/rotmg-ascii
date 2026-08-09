@@ -24,3 +24,26 @@ SELECTED_VARIANT = {
     STANDARD: STANDARD_SELECTED,
     CRUCIBLE: CRUCIBLE_SELECTED,
 }
+
+# Generic pairs for the map/HUD renderer - maps renderMap.json's 8 base
+# curses color-name strings (and the HUD's HP/MP/Fame bars) straight to a
+# pair number, independent of the semantic menu pairs above.
+MAP_BLACK = 10
+MAP_RED = 11
+MAP_GREEN = 12
+MAP_YELLOW = 13
+MAP_BLUE = 14
+MAP_MAGENTA = 15
+MAP_CYAN = 16
+MAP_WHITE = 17
+
+MAP_COLOR_TO_PAIR = {
+    "BLACK": MAP_BLACK,
+    "RED": MAP_RED,
+    "GREEN": MAP_GREEN,
+    "YELLOW": MAP_YELLOW,
+    "BLUE": MAP_BLUE,
+    "MAGENTA": MAP_MAGENTA,
+    "CYAN": MAP_CYAN,
+    "WHITE": MAP_WHITE,
+}
