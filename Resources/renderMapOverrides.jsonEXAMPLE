@@ -1,0 +1,9 @@
+{
+  "objects": {
+    "1286": {"chars": ["$"], "color": "MAGENTA"},
+    "1292": {"chars": ["$"], "color": "WHITE"}
+  },
+  "ground": {
+    "27": {"chars": [".", ",", "'"]}
+  }
+}
