@@ -50,7 +50,14 @@ def mergeOverrides(derived: dict[str, dict[int, RenderInfo]], overrides: dict) -
     result: dict[str, dict[str, dict]] = {"objects": {}, "ground": {}}
     for category in ("objects", "ground"):
         base = {
-            str(entity_id): {"name": info.name, "chars": info.chars, "color": info.color}
+            str(entity_id): {
+                "name": info.name,
+                "chars": info.chars,
+                "color": info.color,
+                "blocksMovement": info.blocksMovement,
+                "isEnemy": info.isEnemy,
+                "isLootBag": info.isLootBag,
+            }
             for entity_id, info in derived[category].items()
         }
         for id_str, override_fields in overrides.get(category, {}).items():

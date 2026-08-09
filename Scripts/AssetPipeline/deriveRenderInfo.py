@@ -67,6 +67,9 @@ class RenderInfo:
     name: str
     chars: list[str]
     color: str
+    blocksMovement: bool = False
+    isEnemy: bool = False
+    isLootBag: bool = False
 
 
 def nearestCursesColor(r: float, g: float, b: float) -> str:
@@ -133,6 +136,9 @@ def deriveRenderInfo(
         name=entity.name,
         chars=[DEFAULT_CHARS.get(category, "?")],
         color=color,
+        blocksMovement=entity.blocksMovement,
+        isEnemy=entity.isEnemy,
+        isLootBag=entity.isLootBag,
     )
 
 

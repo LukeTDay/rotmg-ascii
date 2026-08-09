@@ -78,6 +78,14 @@ class ParsedEntity:
     name: str
     textureRefs: list[tuple[str, int]] = field(default_factory=list)  # (spriteSheetName, index)
     projectiles: list[ParsedProjectile] = field(default_factory=list)
+    # Only ever set for `Object` elements (Ground elements keep these defaults) -
+    # used by the map renderer's hierarchy: walls block movement, Enemy marks a
+    # hostile monster (vs. a pet/NPC/decorative summon, which is deliberately
+    # excluded from rendering rather than falling through to a lower tier), and
+    # Container marks the loot-bag/chest/gravestone family.
+    blocksMovement: bool = False
+    isEnemy: bool = False
+    isLootBag: bool = False
 
 
 def _parseTypeAttr(raw: str) -> int | None:
@@ -185,8 +193,24 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
         textureRefs = _parseTextureRefs(elem)
         if not textureRefs:
             continue  # nothing to render this entity with
-        projectiles = _parseProjectiles(elem) if tag == "Object" else []
-        entities[entityId] = ParsedEntity(entityId=entityId, name=name, textureRefs=textureRefs, projectiles=projectiles)
+        if tag == "Object":
+            projectiles = _parseProjectiles(elem)
+            blocksMovement = elem.find("OccupySquare") is not None or elem.find("FullOccupy") is not None
+            isEnemy = elem.find("Enemy") is not None
+            classElem = elem.find("Class")
+            isLootBag = classElem is not None and classElem.text is not None and classElem.text.strip() == "Container"
+        else:
+            projectiles = []
+            blocksMovement = isEnemy = isLootBag = False
+        entities[entityId] = ParsedEntity(
+            entityId=entityId,
+            name=name,
+            textureRefs=textureRefs,
+            projectiles=projectiles,
+            blocksMovement=blocksMovement,
+            isEnemy=isEnemy,
+            isLootBag=isLootBag,
+        )
     return entities
 
 
