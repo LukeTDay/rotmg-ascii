@@ -3,11 +3,30 @@ import time
 
 from Data.WorldPosData import WorldPosData
 from Data.MoveRecord import MoveRecord
+from Models.ConditionEffect import hasEffect
+from Constants.StatusEffects import SLOWED, SPEEDY, NINJASPEEDY
 
-TICK_INTERVAL = 1 / 10
-# Placeholder until a live PlayerData/condition-effect object exists to read the
-# real speed stat from during an active connection.
-DEFAULT_SPEED = 0.006
+TICK_INTERVAL = 1 / 60
+
+# RotMG's real movement-speed formula (confirmed matching, independently, in
+# both pyrelay's Client.getSpeed and rotmg_mitm_py's VaultWalk plugin -
+# tiles per millisecond): speed = MIN_SPEED + (spd+spdBoost)/75 *
+# (MAX_SPEED-MIN_SPEED), SLOWED overrides to flat MIN_SPEED (not a 0.5x
+# multiplier), SPEEDY/NINJASPEEDY apply a 1.5x multiplier on top of the
+# stat-derived speed (computed after the SPD formula, skipped entirely if
+# SLOWED short-circuited it).
+MIN_SPEED = 0.004
+MAX_SPEED = 0.0096
+HASTE_MULTIPLIER = 1.5
+
+
+def computeSpeed(spd: int, spdBoost: int, condition: int) -> float:
+    if hasEffect(condition, SLOWED):
+        return MIN_SPEED
+    speed = MIN_SPEED + (spd + spdBoost) / 75 * (MAX_SPEED - MIN_SPEED)
+    if hasEffect(condition, SPEEDY, NINJASPEEDY):
+        speed *= HASTE_MULTIPLIER
+    return speed
 
 
 class RepeatTimer(threading.Timer):
@@ -26,6 +45,7 @@ class Ticker:
         self.debugger = debugger
         self.pos: WorldPosData | None = None
         self.target: WorldPosData | None = None
+        self.speed = MIN_SPEED  # updated via setSpeed() once real stats arrive
         self.records: list[MoveRecord] = []
         self.lastFrameTime = self._getTime()
         self._lock = threading.Lock()
@@ -52,6 +72,10 @@ class Ticker:
         with self._lock:
             self.target = pos.clone()
 
+    def setSpeed(self, speed: float):
+        with self._lock:
+            self.speed = speed
+
     def drainRecords(self) -> list[MoveRecord]:
         with self._lock:
             records = self.records
@@ -72,7 +96,7 @@ class Ticker:
             if self.pos is None:
                 return
             if self.target is not None and self.pos.dist(self.target) > 1e-6:
-                step = DEFAULT_SPEED * diff
+                step = self.speed * diff
                 if self.pos.dist(self.target) <= step:
                     self.pos = self.target.clone()
                 else:

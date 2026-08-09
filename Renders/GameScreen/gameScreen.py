@@ -9,13 +9,21 @@ from Models.ProjectileStore import ProjectileStore
 
 from Networking.Connect import connectToGame
 import Networking.PacketHelper as PacketHelper
+from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.GameScreen.mapRenderer import drawFrame
+from Renders.GameScreen.movementInput import handleMovementInput
 
 from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader
 
 import curses, threading, queue, time
+
+# Target render-loop cadence for _connectedLoop, once past the handshake -
+# tunable. The loop below times how long each iteration's own work (queue
+# drain/apply, draw, input) actually took and only sleeps the remainder, so
+# this is a target rate, not an on-top-of-everything-else fixed delay.
+FRAME_INTERVAL_SECONDS = 1 / 120
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
@@ -136,6 +144,12 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                     showAllyShoot.toggle = 0
                     outgoingQueue.put(showAllyShoot)
                     return None
+                elif packetType == "ACCOUNTLIST":
+                    # Sent right after login, before CREATESUCCESS - handled
+                    # here too, not just in _connectedLoop's dispatch,
+                    # otherwise this phase's narrow MAPINFO/FAILURE/
+                    # CREATESUCCESS-only filter silently drops it.
+                    _applyAccountList(ctx, event)
         except queue.Empty:
             pass
 
@@ -168,15 +182,42 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
         )
 
 
+_LOCK_LIST_ID = 0  # AccountListPacket.accountListId - 0 is the lock list, 1 is the ignore list
+_LOCK_ACTION_SNAPSHOT = -1
+_LOCK_ACTION_REMOVE = 0
+_LOCK_ACTION_ADD = 1
+
+
+def _applyAccountList(ctx: Context, event) -> None:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info(
+        f"ACCOUNTLIST received: accountListId={event.accountListId} "
+        f"lockAction={event.lockAction} accountIds={event.accountIds}"
+    )
+    if event.accountListId != _LOCK_LIST_ID:
+        return  # e.g. the ignore list - not relevant to rendering
+    locked = ctx.setdefault("LOCKEDACCOUNTS", set())
+    if event.lockAction == _LOCK_ACTION_SNAPSHOT:
+        locked.clear()
+        locked.update(event.accountIds)
+    elif event.lockAction == _LOCK_ACTION_ADD:
+        locked.update(event.accountIds)
+    elif event.lockAction == _LOCK_ACTION_REMOVE:
+        locked.difference_update(event.accountIds)
+
+
 def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
     listener = required(ctx.get("LISTENER"), "LISTENER")
+    ticker = required(ctx.get("TICKER"), "TICKER")
     state = GameState()
     player = PlayerData()
     projectiles = ProjectileStore()
     projectileMap = projectileMapLoader()
 
     while True:
+        frameStart = time.time()
         try:
             while True:
                 event = incomingQueue.get_nowait()
@@ -189,12 +230,14 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                     for obj in event.newObjs:
                         if obj.status.objectId == listener.objectId:
                             player.parse(obj)
+                            ticker.setSpeed(computeSpeed(player.spd, player.spdBoost, player.condition))
                 elif event.type == "NEWTICK":
                     state.applyNewTick(event)
                     for status in event.statuses:
                         if status.objectId == listener.objectId:
                             player.pos = status.pos
                             player.parseStats(status.stats)
+                            ticker.setSpeed(computeSpeed(player.spd, player.spdBoost, player.condition))
                 elif event.type == "SERVERPLAYERSHOOT":
                     _spawnProjectiles(
                         projectiles, projectileMap, event.containerType, 0,
@@ -209,12 +252,20 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             event.ownerId, event.bulletId, event.startingPos,
                             event.angle, event.angleInc, event.numShots, event.damage,
                         )
+                elif event.type == "ACCOUNTLIST":
+                    _applyAccountList(ctx, event)
         except queue.Empty:
             pass
         projectiles.prune()
-        drawFrame(stdscr, pad, state, player, projectiles, listener, ctx)
-        pad.getch()
-        time.sleep(0.05)
+        drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
+        handleMovementInput(pad, ticker)
+        elapsed = time.time() - frameStart
+        remaining = FRAME_INTERVAL_SECONDS - elapsed
+        if remaining < 0:
+            debugger.warning(
+                f"Frame took {elapsed * 1000:.1f}ms, over the {FRAME_INTERVAL_SECONDS * 1000:.1f}ms budget"
+            )
+        time.sleep(max(0.0, remaining))
 
 
 def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, packet) -> Screen:

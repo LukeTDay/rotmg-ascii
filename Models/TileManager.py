@@ -39,12 +39,12 @@ class RenderCell:
 
 
 def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[ObjectRenderInfo],
-                    friendsAndGuild: Set[str]) -> Optional[Tier]:
+                    friendsAndGuild: Set[str], lockedAccounts: Set[str]) -> Optional[Tier]:
     """Single-pass precedence matching the render hierarchy exactly: self ->
-    enemy -> wall -> other-player (friend/guild only) -> loot bag -> excluded.
-    Anything that doesn't match one of these tiers (pets, quest NPCs,
-    decorative summons, unclassified objects) is deliberately excluded from
-    rendering rather than falling through to a lower tier.
+    enemy -> wall -> other-player (friend/guild/locked only) -> loot bag ->
+    excluded. Anything that doesn't match one of these tiers (pets, quest
+    NPCs, decorative summons, unclassified objects) is deliberately excluded
+    from rendering rather than falling through to a lower tier.
     """
     if obj.objectId == listenerObjectId:
         return Tier.SELF
@@ -54,16 +54,20 @@ def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[Object
         return Tier.WALL
     if ClassIds.idToClass(obj.objectType) is not None:
         nameStat = obj.stats.get(StatTypes.NAMESTAT)
-        if nameStat is not None and nameStat.strStatValue in friendsAndGuild:
+        isFriendOrGuild = nameStat is not None and nameStat.strStatValue in friendsAndGuild
+        accountIdStat = obj.stats.get(StatTypes.ACCOUNTIDSTAT)
+        isLocked = accountIdStat is not None and accountIdStat.strStatValue in lockedAccounts
+        if isFriendOrGuild or isLocked:
             return Tier.OTHER_PLAYER
-        return None  # a player-class object that isn't a friend/guildmate: excluded
+        return None  # a player-class object that's not a friend/guildmate/locked account: excluded
     if info is not None and info.isLootBag:
         return Tier.LOOT_BAG
     return None
 
 
 def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTileX: int, playerTileY: int,
-                       listenerObjectId: int, friendsAndGuild: Set[str]) -> Dict[Tuple[int, int], RenderCell]:
+                       listenerObjectId: int, friendsAndGuild: Set[str],
+                       lockedAccounts: Set[str]) -> Dict[Tuple[int, int], RenderCell]:
     """Rebuilt fresh every frame - a pure derived view over GameState/
     ProjectileStore, not an incrementally-synced structure. GameState is
     already the single incrementally-updated source of truth; a second
@@ -84,7 +88,7 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
         if not (minX <= tileX <= maxX and minY <= tileY <= maxY):
             continue
         info = objectRenderInfo(obj.objectType)
-        tier = classifyObject(obj, listenerObjectId, info, friendsAndGuild)
+        tier = classifyObject(obj, listenerObjectId, info, friendsAndGuild, lockedAccounts)
         if tier is None:
             continue
         perTile[tier].setdefault((tileX, tileY), []).append(obj)
@@ -99,7 +103,7 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
         if owner is None:
             continue
         ownerInfo = objectRenderInfo(owner.objectType)
-        ownerTier = classifyObject(owner, listenerObjectId, ownerInfo, friendsAndGuild)
+        ownerTier = classifyObject(owner, listenerObjectId, ownerInfo, friendsAndGuild, lockedAccounts)
         if ownerTier not in (Tier.SELF, Tier.ENEMY):
             continue
         pos = proj.posAt(now)

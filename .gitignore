@@ -239,3 +239,7 @@ Resources/misc.xml
 
 # Runtime debug log (RotatingFileHandler output + rotated backups)
 Debug/debug.txt*
+
+# Scratch/local files (e.g. raw API responses saved for debugging) - may
+# contain live account data (access tokens, security question keys, etc.)
+Local/

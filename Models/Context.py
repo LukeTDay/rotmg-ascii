@@ -24,6 +24,7 @@ class Context(TypedDict, total=False):
     CHARLIST: List[CharListData]
     FRIENDSLIST: Set[str]
     GUILDMEMBERS: Set[str]
+    LOCKEDACCOUNTS: Set[str]
     SERVERS: Dict[str, str]
     CURR_CHAR_ID: int
     CURR_SERVER: str
