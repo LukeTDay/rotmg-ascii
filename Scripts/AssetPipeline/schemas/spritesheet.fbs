@@ -1,0 +1,61 @@
+// Schema for RotMG Exalt's `spritesheetf` TextAsset (extracted by
+// extractBundles.py as `spritesheetf.bin`), which maps a logical sprite
+// sheet name + index (the <Texture><File>/<Index> refs in the game's
+// object/ground XML) to a pixel rect + dominant color within one of the
+// four real spritesheet PNGs.
+//
+// Field order matters - it IS the vtable slot index, so it must match the
+// game's actual binary layout, not just field names/types. Recovered from
+// the sibling reference project RealmShark's FlatBuffers-compiler-generated
+// Java bindings (assets/flattbuffer/*.java) and independently confirmed by
+// manually walking the wire format against real extracted bytes, then
+// cross-checked by cropping known sprites (e.g. the Health Potion) out of
+// the real PNGs at the decoded coordinates. See CLAUDE.local.md's
+// "Reference projects" section.
+
+struct Position {
+  x: float;
+  y: float;
+  h: float;
+  w: float;
+}
+
+struct Color {
+  r: float;
+  g: float;
+  b: float;
+  a: float;
+}
+
+table Sprite {
+  position: Position;
+  mask_position: Position;
+  padding: int;
+  index: int;
+  most_common_color: Color;
+  is_t: bool;
+  sprite_sheet_name: string;
+  a_id: long;
+}
+
+table AnimatedSprite {
+  name: string;
+  index: uint;
+  set: int;
+  direction: uint;
+  action: uint;
+  sprites: Sprite;
+}
+
+table SpriteSheet {
+  name: string;
+  atlas_id: long;
+  sprites: [Sprite];
+}
+
+table SpriteSheetRoot {
+  sprites: [SpriteSheet];
+  animated_sprites: [AnimatedSprite];
+}
+
+root_type SpriteSheetRoot;
