@@ -307,7 +307,8 @@ def drawCenteredBanner(stdscr : curses.window,
                        pad : curses.window,
                        y : int,
                        text : str,
-                       font : str = "standard") -> int:
+                       font : str = "standard",
+                       attr : int = curses.A_NORMAL) -> int:
     """Renders text as large pyfiglet ASCII-art, each line centered against the
     terminal's actual width (re-read every call, so it re-centers if the
     terminal is resized between frames). Returns the next free row so callers
@@ -316,7 +317,7 @@ def drawCenteredBanner(stdscr : curses.window,
     lines = _figletLines(text, font)
     for i, line in enumerate(lines):
         x = max(0, (maxX - len(line)) // 2)
-        pad.addstr(y + i, x, line[:max(0, maxX - x)])
+        pad.addstr(y + i, x, line[:max(0, maxX - x)], attr)
     return y + len(lines)
 
 def getPassword(stdscr : curses.window,
