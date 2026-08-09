@@ -19,6 +19,7 @@ class Context(TypedDict, total=False):
     account: AccountData
     accessToken: str
     clientToken: str
+    buildVersion: str
     CHARLIST: List[CharListData]
     FRIENDSLIST: Set[str]
     GUILDMEMBERS: Set[str]
