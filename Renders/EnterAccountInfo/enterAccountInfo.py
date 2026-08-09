@@ -146,11 +146,12 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     thread = threading.Thread(target=verifyWorker, args=(credentialDict, resultQueue, debugger), daemon=True)
     thread.start()
 
+    verifyingTextX = centeredX(stdscr, "Verifying ROTMG account.....")
     buf : List[str] = []
     while thread.is_alive():
         pad.move(yIndex,0)
         pad.clrtobot()
-        drawCenteredText(stdscr,pad,yIndex,f"Verifying ROTMG account{''.join(buf)}")
+        drawTextAt(stdscr,pad,yIndex,verifyingTextX,f"Verifying ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
         if len(buf) == 5:

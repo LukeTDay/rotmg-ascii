@@ -6,7 +6,7 @@ from Utils.XML.parseCharList import parseCharList
 from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
-from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText, verifyWorker
+from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, verifyWorker
 from Models.Context import Context, required
 
 import curses, threading, queue, time, requests,os
@@ -40,12 +40,13 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     tokenThread = threading.Thread(target=verifyWorker, args=(currentAccount, resultQueue, debugger), daemon=True)
     tokenThread.start()
 
+    verifyingTextX = centeredX(stdscr, "ROTMG account.....")
     buf : List[str] = []
     while tokenThread.is_alive():
         pad.move(0,0)
         pad.clrtobot()
         yIndex = drawCenteredBanner(stdscr, pad, 0, "Verifying")
-        yIndex = drawCenteredText(stdscr, pad, yIndex + 1, f"ROTMG account{''.join(buf)}")
+        yIndex = drawTextAt(stdscr, pad, yIndex + 1, verifyingTextX, f"ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
         if len(buf) == 5:
@@ -92,12 +93,13 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     groupQueue = queue.Queue()
     threadList = gatherData(ctx, groupQueue)
 
+    gatheringTextX = centeredX(stdscr, "the rest of the data.....")
     buf = []
     while checkThreads(threadList):
         pad.move(0,0)
         pad.clrtobot()
         yIndex = drawCenteredBanner(stdscr, pad, 0, "Gathering")
-        yIndex = drawCenteredText(stdscr, pad, yIndex + 1, f"the rest of the data{''.join(buf)}")
+        yIndex = drawTextAt(stdscr, pad, yIndex + 1, gatheringTextX, f"the rest of the data{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
         if len(buf) == 5:

@@ -8,7 +8,7 @@ from Models.CharListData import CharListData
 from Models.Context import Context, required
 from Constants.ClassIds import *
 from Constants import ColorPairs
-from Utils.XML.parseObjectNames import objectIdToName
+from Utils.json.objectNameLoader import objectIdToName
 
 ROWS_PER_SLOT = 4  # 3 text rows + 1 blank spacer row
 STATS_WIDTH = 25  # fixed width for the name/level and fame/seasonal rows
