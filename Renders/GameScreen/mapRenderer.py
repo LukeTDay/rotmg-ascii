@@ -18,38 +18,52 @@ BAR_WIDTH = 20
 # the HUD - see _drawHud's hudCol - and a little right-side margin.
 HUD_WIDTH_COLS = BAR_WIDTH + 4
 
+# A monospace terminal character cell is roughly this many times taller than
+# it is wide (a common approximation - most terminal fonts are close to a
+# 1:2 width:height ratio). Without compensating for this, a world tile drawn
+# as an NxN block of character cells looks visually taller than it is wide,
+# so equal X/Y world distances look uneven on screen. Compensated for by
+# using twice as many character columns as rows per tile (scaleX vs scaleY
+# below) rather than a single uniform scale.
+CHAR_ASPECT_RATIO = 2.0
 
-def computeScale(stdscr: curses.window) -> Tuple[int, int, int]:
-    """Returns (scale, mapAreaRows, mapAreaCols). `scale` is how many
-    character cells each world tile is drawn as (nearest-neighbor block
-    replication) - the view always shows the same fixed VIEW_RADIUS_TILES
-    window of real tiles; a bigger/zoomed-in terminal just makes each tile's
-    block bigger, it never shows more world.
+
+def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int]:
+    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols). `scaleX`/`scaleY`
+    are how many character columns/rows each world tile is drawn as
+    (nearest-neighbor block replication, scaleX ~= scaleY * CHAR_ASPECT_RATIO
+    so a world-square actually looks square on screen) - the view always
+    shows the same fixed VIEW_RADIUS_TILES window of real tiles; a bigger/
+    zoomed-in terminal just makes each tile's block bigger, it never shows
+    more world.
     """
     maxY, maxX = stdscr.getmaxyx()
     mapAreaRows = maxY
     mapAreaCols = max(1, maxX - HUD_WIDTH_COLS)
     windowSize = 2 * VIEW_RADIUS_TILES + 1
-    scale = max(1, min(mapAreaRows, mapAreaCols) // windowSize)
-    return scale, mapAreaRows, mapAreaCols
+    maxScaleYFromRows = mapAreaRows // windowSize
+    maxScaleYFromCols = int(mapAreaCols // (windowSize * CHAR_ASPECT_RATIO))
+    scaleY = max(1, min(maxScaleYFromRows, maxScaleYFromCols))
+    scaleX = max(1, round(scaleY * CHAR_ASPECT_RATIO))
+    return scaleX, scaleY, mapAreaRows, mapAreaCols
 
 
-def _drawMap(pad: curses.window, scale: int, mapAreaRows: int, mapAreaCols: int,
+def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, mapAreaCols: int,
              visibleTiles, playerTileX: int, playerTileY: int) -> None:
     centerRow = mapAreaRows // 2
     centerCol = mapAreaCols // 2
     for (tileX, tileY), cell in visibleTiles.items():
         dx, dy = tileX - playerTileX, tileY - playerTileY
-        screenRow0 = centerRow + dy * scale
-        screenCol0 = centerCol + dx * scale
+        screenRow0 = centerRow + dy * scaleY
+        screenCol0 = centerCol + dx * scaleX
         pairNum = ColorPairs.MAP_COLOR_TO_PAIR.get(cell.colorName, ColorPairs.MAP_WHITE)
         attr = curses.color_pair(pairNum)
-        for r in range(scale):
+        for r in range(scaleY):
             row = screenRow0 + r
             if not (0 <= row < mapAreaRows):
                 continue
             colStart = max(0, screenCol0)
-            colEnd = min(mapAreaCols, screenCol0 + scale)
+            colEnd = min(mapAreaCols, screenCol0 + scaleX)
             if colEnd <= colStart:
                 continue
             try:
@@ -139,10 +153,10 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
         state, projectiles, playerTileX, playerTileY, listener.objectId, friendsAndGuild, lockedAccounts
     )
 
-    scale, mapAreaRows, mapAreaCols = computeScale(stdscr)
+    scaleX, scaleY, mapAreaRows, mapAreaCols = computeScale(stdscr)
 
     pad.erase()
-    _drawMap(pad, scale, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY)
+    _drawMap(pad, scaleX, scaleY, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY)
     _drawHud(stdscr, pad, player, mapAreaCols)
 
     determineRefreshWindow(stdscr, pad, 0)
