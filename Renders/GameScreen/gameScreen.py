@@ -3,6 +3,9 @@ import Constants.GameIds as GameIds
 
 from Models.Context import Context, required
 
+from Models.GameState import GameState
+from Models.PlayerData import PlayerData
+
 from Networking.Connect import connectToGame
 import Networking.PacketHelper as PacketHelper
 
@@ -137,6 +140,9 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
 
 def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen:
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
+    listener = required(ctx.get("LISTENER"), "LISTENER")
+    state = GameState()
+    player = PlayerData()
 
     pad.move(0, 0)
     pad.clrtobot()
@@ -148,8 +154,21 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         try:
             while True:
                 event = incomingQueue.get_nowait()
-                if not isinstance(event, tuple) and event.type == "FAILURE":
+                if isinstance(event, tuple):
+                    continue
+                if event.type == "FAILURE":
                     return _handleFailure(stdscr, pad, ctx, event)
+                elif event.type == "UPDATE":
+                    state.applyUpdate(event)
+                    for obj in event.newObjs:
+                        if obj.status.objectId == listener.objectId:
+                            player.parse(obj)
+                elif event.type == "NEWTICK":
+                    state.applyNewTick(event)
+                    for status in event.statuses:
+                        if status.objectId == listener.objectId:
+                            player.pos = status.pos
+                            player.parseStats(status.stats)
         except queue.Empty:
             pass
         pad.getch()

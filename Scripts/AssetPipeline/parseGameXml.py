@@ -44,12 +44,40 @@ GENERATED_ROOT = Path(__file__).resolve().parents[2] / "Resources" / "_generated
 
 TEXTURE_TAGS = ("Texture", "AnimatedTexture")
 
+# Projectile sub-fields modeled explicitly - the ones needed to simulate a
+# shot's flight (speed/lifetime), damage, and hitbox size. Everything else a
+# <Projectile> can carry (Wavy, Boomerang, Parametric, TurnRate*, Acceleration*,
+# etc. - real flight-pattern variants, not typos) is preserved in
+# ParsedProjectile.extras instead of being modeled here, so that data isn't
+# lost even though nothing consumes it yet.
+_PROJECTILE_CORE_TAGS = {
+    "ObjectId", "Speed", "LifetimeMS", "Damage", "MinDamage", "MaxDamage",
+    "Size", "MultiHit", "ArmorPiercing", "PassesCover",
+}
+
+
+@dataclass
+class ParsedProjectile:
+    id: int
+    objectId: str
+    speed: float
+    lifetimeMS: int
+    damage: int = 0
+    minDamage: int | None = None
+    maxDamage: int | None = None
+    size: int | None = None
+    multiHit: bool = False
+    armorPiercing: bool = False
+    passesCover: bool = False
+    extras: dict[str, str] = field(default_factory=dict)  # raw text of any other child tag, by tag name
+
 
 @dataclass
 class ParsedEntity:
     entityId: int
     name: str
     textureRefs: list[tuple[str, int]] = field(default_factory=list)  # (spriteSheetName, index)
+    projectiles: list[ParsedProjectile] = field(default_factory=list)
 
 
 def _parseTypeAttr(raw: str) -> int | None:
@@ -84,6 +112,62 @@ def _parseTextureRefs(elem: et.Element) -> list[tuple[str, int]]:
     return refs
 
 
+def _parseNumber(raw: str | None) -> float | None:
+    if raw is None:
+        return None
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return None
+
+
+def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
+    """Parse every direct <Projectile id="N"> child of an <Object> (a weapon or
+    an enemy). `id` selects which of an owner's projectiles a live
+    SERVERPLAYERSHOOT/ENEMYSHOOT packet is referring to; missing `id` defaults
+    to 0, the common case for single-projectile weapons.
+    """
+    projectiles: list[ParsedProjectile] = []
+    for projElem in elem.findall("Projectile"):
+        objectIdElem = projElem.find("ObjectId")
+        speed = _parseNumber(projElem.findtext("Speed"))
+        lifetime = _parseNumber(projElem.findtext("LifetimeMS"))
+        if objectIdElem is None or not objectIdElem.text or speed is None or lifetime is None:
+            continue  # can't simulate flight without these - skip this projectile
+
+        try:
+            projId = int(projElem.get("id", "0"))
+        except ValueError:
+            projId = 0
+
+        damage = _parseNumber(projElem.findtext("Damage"))
+        minDamage = _parseNumber(projElem.findtext("MinDamage"))
+        maxDamage = _parseNumber(projElem.findtext("MaxDamage"))
+        size = _parseNumber(projElem.findtext("Size"))
+
+        extras: dict[str, str] = {}
+        for child in projElem:
+            if child.tag in _PROJECTILE_CORE_TAGS:
+                continue
+            extras[child.tag] = child.text if child.text is not None else ""
+
+        projectiles.append(ParsedProjectile(
+            id=projId,
+            objectId=objectIdElem.text.strip(),
+            speed=speed,
+            lifetimeMS=int(lifetime),
+            damage=int(damage) if damage is not None else 0,
+            minDamage=int(minDamage) if minDamage is not None else None,
+            maxDamage=int(maxDamage) if maxDamage is not None else None,
+            size=int(size) if size is not None else None,
+            multiHit=projElem.find("MultiHit") is not None,
+            armorPiercing=projElem.find("ArmorPiercing") is not None,
+            passesCover=projElem.find("PassesCover") is not None,
+            extras=extras,
+        ))
+    return projectiles
+
+
 def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
     """Pure parse: XML text -> {typeId: ParsedEntity}, for either `Object` or `Ground` elements."""
     entities: dict[int, ParsedEntity] = {}
@@ -101,7 +185,8 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
         textureRefs = _parseTextureRefs(elem)
         if not textureRefs:
             continue  # nothing to render this entity with
-        entities[entityId] = ParsedEntity(entityId=entityId, name=name, textureRefs=textureRefs)
+        projectiles = _parseProjectiles(elem) if tag == "Object" else []
+        entities[entityId] = ParsedEntity(entityId=entityId, name=name, textureRefs=textureRefs, projectiles=projectiles)
     return entities
 
 
