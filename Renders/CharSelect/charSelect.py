@@ -8,8 +8,10 @@ from Models.CharListData import CharListData
 from Models.Context import Context, required
 from Constants.ClassIds import *
 from Constants import ColorPairs
+from Utils.XML.parseObjectNames import objectIdToName
 
 ROWS_PER_SLOT = 4  # 3 text rows + 1 blank spacer row
+STATS_WIDTH = 25  # fixed width for the name/level and fame/seasonal rows
 
 
 def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
@@ -120,30 +122,63 @@ def _printSplitRow(stdscr : curses.window,
         pad.addstr(y, rightX, rightClipped, segAttr(rightPair))
     return y + 1
 
+def _statsRowTexts(char : CharListData) -> tuple[str, str, str, str]:
+    nameText = f" {idToClass(char.objectType)}"
+    levelText = f"LVL {char.currentLevel:2} "
+    fameText = f" {char.currentFame}"
+    seasonalText = f"{'Seasonal' if char.isSeasonal else 'Standard'} "
+    return nameText, levelText, fameText, seasonalText
+
+def _equipSlotText(objectId : int) -> str:
+    if objectId == -1:
+        return "Empty"
+    return objectIdToName(objectId) or str(objectId)
+
+def _truncateItemName(name : str, width : int) -> str:
+    """Truncates a single item name to width, replacing the cut-off tail with
+    "..." rather than chopping it silently - keeps a truncated name readable
+    ("Sprite's Wand of...") instead of ending mid-word with no indication."""
+    if len(name) <= width:
+        return name
+    if width <= 3:
+        return name[:max(0, width)]
+    return name[:width - 3] + "..."
+
+def _buildEquipmentRow(stdscr : curses.window, char : CharListData) -> str:
+    """Resolves the first 4 equipment slots (weapon/ability/armor/ring -
+    equipmentList can carry more entries than that, e.g. inventory/backpack,
+    which this deliberately ignores) to names, and truncates each name
+    individually so the combined row never exceeds the terminal's actual
+    width - instead of letting the tail of the whole line get blindly clipped
+    by drawCenteredText, which could cut an early item's name off mid-word or
+    drop later items entirely."""
+    names = [_equipSlotText(i) for i in char.equipmentList[:4]]
+    if not names:
+        return ""
+
+    _, maxX = stdscr.getmaxyx()
+    separator = " - "
+    overhead = 2 + len(separator) * (len(names) - 1)  # leading/trailing space + separators
+    perItemWidth = max(1, (maxX - overhead) // len(names))
+
+    truncated = [_truncateItemName(name, perItemWidth) for name in names]
+    return " " + separator.join(truncated) + " "
+
 def printCharSlot(stdscr : curses.window,
                   pad : curses.window,
                   y : int,
                   char : CharListData,
                   attr : int) -> int:
-    nameText = f" {idToClass(char.objectType)}"
-    levelText = f"LVL {char.currentLevel:2} "
-    fameText = f" {char.currentFame}"
-    seasonalText = f"{'Seasonal' if char.isSeasonal else 'Standard'} "
-    str3 = f" {char.equipmentList[0]:5} - {char.equipmentList[1]:5} - {char.equipmentList[2]:5} - {char.equipmentList[3]:5} "
-
-    cardWidth = max(
-        len(nameText) + len(levelText) + 1,
-        len(fameText) + len(seasonalText) + 1,
-        len(str3),
-    )
+    nameText, levelText, fameText, seasonalText = _statsRowTexts(char)
+    str3 = _buildEquipmentRow(stdscr, char)
 
     selected = attr == curses.A_REVERSE
     namePair = ColorPairs.CRUCIBLE if char.isInCrucible else None
     seasonalPair = ColorPairs.SEASONAL if char.isSeasonal else ColorPairs.STANDARD
 
-    y = _printSplitRow(stdscr, pad, y, nameText, levelText, cardWidth, namePair, None, selected)
-    y = _printSplitRow(stdscr, pad, y, fameText, seasonalText, cardWidth, ColorPairs.FAME, seasonalPair, selected)
-    y = drawCenteredText(stdscr, pad, y, f"{str3:<{cardWidth}}", attr)
+    y = _printSplitRow(stdscr, pad, y, nameText, levelText, STATS_WIDTH, namePair, None, selected)
+    y = _printSplitRow(stdscr, pad, y, fameText, seasonalText, STATS_WIDTH, ColorPairs.FAME, seasonalPair, selected)
+    y = drawCenteredText(stdscr, pad, y, str3, attr)
     return y + 1
 
 def printBackSlot(stdscr : curses.window,

@@ -1,7 +1,4 @@
 
-VERSION = "https://static.drips.pw/rotmg/production/current/version.txt"
-EQUIP = "https://static.drips.pw/rotmg/production/current/xml/Equip.xml"
-
 # account/*
 VERIFY = "https://www.realmofthemadgod.com/account/verify"
 VERIFYTOKEN = "https://www.realmofthemadgod.com/account/verifyAccessTokenClient"
