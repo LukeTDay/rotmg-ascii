@@ -78,19 +78,40 @@ if IS_WINDOWS:
     # getch() can only ever return a real keystroke while this console
     # genuinely has OS keyboard focus (that's just how Windows routes input),
     # so a recent real getch() event is used as the focus proxy instead of
-    # any window/process introspection. The recency window is sized off the
-    # OS's own configured key-repeat delay (SPI_GETKEYBOARDDELAY) rather than
-    # a guessed constant: the first physical keydown always arrives via
-    # getch() instantly (no repeat-delay applies to it), which arms trust in
-    # GetAsyncKeyState for slightly longer than that delay - long enough for
-    # the terminal's own auto-repeat events to keep re-arming it before it
-    # expires, sustaining smooth polling for as long as a key is genuinely
-    # held. No keystrokes at all (unfocused) means it's never armed.
+    # any window/process introspection. The recency window has to comfortably
+    # outlast the GAP BETWEEN CONSECUTIVE REPEAT EVENTS for a genuinely-held
+    # key (that's what "re-arms trust before it expires" actually depends on
+    # once the first keydown has armed it) - sized off two OS settings, not
+    # one: SPI_GETKEYBOARDDELAY (time before repeat starts - only matters for
+    # the very first press, which arms trust instantly via getch() anyway)
+    # and SPI_GETKEYBOARDSPEED (the repeat RATE once repeating - this is the
+    # steady-state interval that actually matters for a held key, and a
+    # user with a slow repeat-rate setting has a much bigger gap here than
+    # the delay alone would suggest). An earlier version of this sized the
+    # window off delay alone, which mismatched its own stated intent and
+    # left too little margin for slow-repeat-rate users (or any extra
+    # delivery jitter, e.g. a burst of mouse-motion KEY_MOUSE events sharing
+    # the same input pipeline) - symptom was movement intermittently
+    # stopping mid-hold until the key was released and re-pressed.
     _SPI_GETKEYBOARDDELAY = 0x0016
+    _SPI_GETKEYBOARDSPEED = 0x000A
     _delayIndex = ctypes.c_int(1)  # Windows default index if the query fails
+    _speedIndex = ctypes.c_int(31)  # Windows default (fastest) if the query fails - safest fallback, see below
     _user32.SystemParametersInfoW(_SPI_GETKEYBOARDDELAY, 0, ctypes.byref(_delayIndex), 0)
-    # index 0-3 => roughly 250ms-1000ms; +150ms buffer over the raw delay.
-    _HOLD_TRUST_WINDOW_SECONDS = ((_delayIndex.value + 1) * 0.25) + 0.15
+    _user32.SystemParametersInfoW(_SPI_GETKEYBOARDSPEED, 0, ctypes.byref(_speedIndex), 0)
+    # index 0-3 => roughly 250ms-1000ms.
+    _delayBasedWindow = ((_delayIndex.value + 1) * 0.25) + 0.15
+    # index 0-31 => roughly 2.5-30 repeats/sec (Windows' own documented
+    # range); a LOWER speed index means a WIDER gap between repeats, so the
+    # fallback above (31, fastest/narrowest gap) is the safe default if the
+    # query fails - it errs toward too-short a window, same failure mode the
+    # old delay-only code already had, rather than silently trusting forever.
+    # 3x margin over the raw interval absorbs jitter (delivery delay from a
+    # busy input pipeline, occasional dropped repeat) without materially
+    # delaying how fast a genuine key release is detected.
+    _repeatIntervalSeconds = 1.0 / (2.5 + (_speedIndex.value / 31.0) * 27.5)
+    _speedBasedWindow = (_repeatIntervalSeconds * 3.0) + 0.15
+    _HOLD_TRUST_WINDOW_SECONDS = max(_delayBasedWindow, _speedBasedWindow)
 
     _lastKeyEventTime: Optional[float] = None
 
@@ -110,10 +131,11 @@ if IS_WINDOWS:
                 dy += vy
         if dx == 0.0 and dy == 0.0:
             return None
-        if dx != 0.0 and dy != 0.0:
-            norm = math.sqrt(dx * dx + dy * dy)
-            dx /= norm
-            dy /= norm
+        # Deliberately NOT normalized here - handleMovementInput normalizes
+        # after collision-blocking is applied, not before (see its comment),
+        # since one axis of a diagonal press can get blocked by a wall and
+        # the surviving single axis needs to move at full speed, not the
+        # diagonal's scaled-down 1/sqrt(2).
         return dx, dy
 
 
@@ -136,6 +158,50 @@ def drainKeys(pad: curses.window) -> List[int]:
         keys.append(key)
         key = pad.getch()
     return keys
+
+
+def getFrameMouseEvent(keys: List[int]) -> Optional[Tuple[int, int, int]]:
+    """The one place per frame curses.getmouse() may be called - shared by
+    every per-frame mouse consumer (shootInput.handleShootInput,
+    panelInput.handlePanelInput). Every caller needing mouse input must
+    consume this same pre-fetched result instead of calling
+    curses.getmouse() itself.
+
+    Calls curses.getmouse() once per queued curses.KEY_MOUSE entry in `keys`
+    (bounded by however many are actually present - not unbounded, and not
+    the expensive per-event work like screenToWorld, just the cheap
+    dequeue+bstate check below), not just once total. A single call was
+    tried first and caused a real click-loss bug: REPORT_MOUSE_POSITION
+    (enabled in main.py) can queue a plain-motion KEY_MOUSE event right
+    after a genuine click's own KEY_MOUSE (the hand naturally jitters even
+    during a deliberate click), and curses.getmouse() only ever returns the
+    single most-recently-queued event - calling it once returned that
+    trailing motion event (bstate with no click bits set) instead of the
+    click, silently dropping it. Draining every queued event and preferring
+    the first one with an actual button bit set fixes that; the original
+    perf regression this single-call design was built to avoid (see prior
+    git history) was from doing the expensive per-event *post-processing*
+    (screenToWorld/computeScale) for every queued motion event, not from
+    calling getmouse() itself, which is cheap - so this keeps that cost at
+    one call's worth of post-processing per frame, same as before.
+
+    Returns (mouseRow, mouseCol, bstate) or None if no mouse event was
+    queued this frame (or every fetch attempt failed).
+    """
+    mouseEventCount = keys.count(curses.KEY_MOUSE)
+    if mouseEventCount == 0:
+        return None
+
+    lastEvent: Optional[Tuple[int, int, int]] = None
+    for _ in range(mouseEventCount):
+        try:
+            _, mouseCol, mouseRow, _, bstate = curses.getmouse()
+        except curses.error:
+            continue
+        lastEvent = (mouseRow, mouseCol, bstate)
+        if bstate & (curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED):
+            return lastEvent
+    return lastEvent
 
 
 def handleMovementInput(keys: List[int], ticker: Ticker, state: GameState) -> Optional[Tuple[float, float]]:
@@ -203,6 +269,17 @@ def handleMovementInput(keys: List[int], ticker: Ticker, state: GameState) -> Op
         return None
     if effectiveDx == 0.0 and effectiveDy == 0.0:
         return None  # every axis of this move is blocked - fully stuck, not sliding anywhere
+
+    if effectiveDx != 0.0 and effectiveDy != 0.0:
+        # Normalized HERE - after collision-blocking, not on the raw input
+        # direction - so a true diagonal (both axes still free) moves at
+        # 1/sqrt(2) per axis (same total speed as a cardinal move, not
+        # sqrt(2) faster), while a diagonal press that got wall-slid down to
+        # a single surviving axis moves at that axis's full speed instead of
+        # incorrectly inheriting the diagonal's scaled-down magnitude.
+        norm = math.sqrt(effectiveDx * effectiveDx + effectiveDy * effectiveDy)
+        effectiveDx /= norm
+        effectiveDy /= norm
 
     ticker.setTarget(WorldPosData(
         currentPos.x + effectiveDx * MOVE_LOOKAHEAD_TILES,

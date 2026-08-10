@@ -15,6 +15,22 @@ class ObjectRenderInfo:
     isLootBag: bool = False
     isPortal: bool = False
     isInteractiveNpc: bool = False
+    # Equipment-item fields for the item-info-peek/inventory UI - absent
+    # (falls back to these defaults) on every non-equipment object, since
+    # renderMap.json only carries them for `<Object>` elements that had the
+    # underlying XML fields. See Scripts/AssetPipeline/deriveRenderInfo.py
+    # for how weaponLabel/bagColorTier are derived.
+    weaponLabel: str = ""
+    bagColorTier: str = "WHITE"
+    # Item-info-peek fields (tier/mpCost/mpEndCost/description) - see
+    # Scripts/AssetPipeline/deriveRenderInfo.py for how these are derived.
+    # Absent (falls back to these defaults) on renderMap.json entries
+    # generated before this field set existed, or on non-equipment objects
+    # that never had the underlying XML fields.
+    tier: Optional[int] = None
+    mpCost: Optional[int] = None
+    mpEndCost: Optional[int] = None
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,6 +69,12 @@ def _loadObjectInfo() -> Dict[int, ObjectRenderInfo]:
                 isLootBag=entry.get("isLootBag", False),
                 isPortal=entry.get("isPortal", False),
                 isInteractiveNpc=entry.get("isInteractiveNpc", False),
+                weaponLabel=entry.get("weaponLabel", ""),
+                bagColorTier=entry.get("bagColorTier", "WHITE"),
+                tier=entry.get("tier"),
+                mpCost=entry.get("mpCost"),
+                mpEndCost=entry.get("mpEndCost"),
+                description=entry.get("description", ""),
             )
             for idStr, entry in _loadRenderMap().get("objects", {}).items()
             if "name" in entry

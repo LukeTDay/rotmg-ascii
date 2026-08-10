@@ -111,6 +111,17 @@ class ParsedEntity:
     isPortal: bool = False
     isInteractiveNpc: bool = False
     isBoss: bool = False
+    # Equipment-item fields for the new item-info-peek/inventory UI (a
+    # separate, parallel effort - this module only captures the raw data,
+    # doesn't render anything with it). Only ever set for `Object` elements;
+    # Ground elements keep these defaults. All optional/soft-defaulted per
+    # this file's usual convention - equipment-only fields are simply absent
+    # on non-equipment objects (enemies, decorations, etc.), not an error.
+    weaponLabel: str = ""  # raw <Labels> text, e.g. "EQUIPMENT,WEAPON,SWORD,TIERED,T0" - kept as-is, not parsed further
+    tier: int | None = None  # <Tier> - many UT/ability items genuinely have none; that absence is meaningful (see deriveRenderInfo's bagColorTier), not a parse failure
+    mpCost: int | None = None  # <MpCost>
+    mpEndCost: int | None = None  # <MpEndCost>
+    description: str = ""  # <Description>
 
 
 def _parseTypeAttr(raw: str) -> int | None:
@@ -257,9 +268,33 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             isPortal = classText == "Portal"
             isInteractiveNpc = classText in _INTERACTIVE_NPC_CLASSES
             isBoss = elem.find("HealthBarBoss") is not None
+
+            # Equipment-item fields (see ParsedEntity's doc comment above) -
+            # all optional/soft-defaulted, since plenty of non-equipment
+            # `<Object>` elements (and even some equipment, e.g. untiered
+            # UT/ability items for <Tier>) simply don't carry them.
+            labelsElem = elem.find("Labels")
+            weaponLabel = labelsElem.text.strip() if labelsElem is not None and labelsElem.text else ""
+
+            tierRaw = _parseNumber(elem.findtext("Tier"))
+            tier = int(tierRaw) if tierRaw is not None else None
+
+            mpCostRaw = _parseNumber(elem.findtext("MpCost"))
+            mpCost = int(mpCostRaw) if mpCostRaw is not None else None
+
+            mpEndCostRaw = _parseNumber(elem.findtext("MpEndCost"))
+            mpEndCost = int(mpEndCostRaw) if mpEndCostRaw is not None else None
+
+            descriptionElem = elem.find("Description")
+            description = descriptionElem.text.strip() if descriptionElem is not None and descriptionElem.text else ""
         else:
             projectiles = []
             blocksMovement = isEnemy = isLootBag = isPortal = isInteractiveNpc = isBoss = False
+            weaponLabel = ""
+            tier = None
+            mpCost = None
+            mpEndCost = None
+            description = ""
         entities[entityId] = ParsedEntity(
             entityId=entityId,
             name=name,
@@ -271,6 +306,11 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             isPortal=isPortal,
             isInteractiveNpc=isInteractiveNpc,
             isBoss=isBoss,
+            weaponLabel=weaponLabel,
+            tier=tier,
+            mpCost=mpCost,
+            mpEndCost=mpEndCost,
+            description=description,
         )
     return entities
 

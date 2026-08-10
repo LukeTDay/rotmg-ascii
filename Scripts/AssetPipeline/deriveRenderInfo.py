@@ -83,6 +83,35 @@ _BAG_COLOR_REFERENCES = {
     "WHITE": (0.80, 0.80, 0.80),    # white/grey bags
 }
 
+# `bagColorTier` is a heuristic stand-in for RotMG's real per-item <BagType>
+# field (which actually drives an item's drop-bag color in game and isn't
+# fully reverse-engineered in this repo - see CLAUDE.md's asset-pipeline
+# notes) - approximated instead from an item's numeric <Tier>, bucketed into
+# the same 5 curses-color names `_BAG_COLOR_REFERENCES` already uses for
+# real loot-bag sprite classification, reused here rather than inventing a
+# second color vocabulary. RotMG item tiers run roughly 0 through the mid-
+# teens; cutoffs below are an even split of that range into ascending
+# "value" buckets (brown -> blue -> red -> purple), with items carrying no
+# <Tier> at all (very common for UT/ability items) mapped to the top bucket,
+# WHITE, since untiered items are typically the most valuable ones in game.
+_TIER_COLOR_CUTOFFS = (
+    (2, "YELLOW"),  # T0-T2: common/early-game gear
+    (5, "BLUE"),    # T3-T5: mid-tier gear
+    (8, "RED"),     # T6-T8: high-tier gear
+)
+_TIER_COLOR_DEFAULT = "MAGENTA"  # T9+: top tiered gear
+_UNTIERED_BAG_COLOR = "WHITE"    # no <Tier> at all (UT/ability items)
+
+
+def deriveBagColorTier(tier: int | None) -> str:
+    if tier is None:
+        return _UNTIERED_BAG_COLOR
+    for maxTier, colorName in _TIER_COLOR_CUTOFFS:
+        if tier <= maxTier:
+            return colorName
+    return _TIER_COLOR_DEFAULT
+
+
 @dataclass(frozen=True)
 class RenderInfo:
     name: str
@@ -93,6 +122,14 @@ class RenderInfo:
     isLootBag: bool = False
     isPortal: bool = False
     isInteractiveNpc: bool = False
+    weaponLabel: str = ""
+    bagColorTier: str = _UNTIERED_BAG_COLOR
+    # Item-info-peek fields, straight from ParsedEntity - see that dataclass's
+    # own field comments for what each one means/when it's absent.
+    tier: int | None = None
+    mpCost: int | None = None
+    mpEndCost: int | None = None
+    description: str = ""
 
 
 def nearestCursesColor(r: float, g: float, b: float) -> str:
@@ -215,6 +252,12 @@ def deriveRenderInfo(
         isLootBag=entity.isLootBag,
         isPortal=entity.isPortal,
         isInteractiveNpc=entity.isInteractiveNpc,
+        weaponLabel=entity.weaponLabel,
+        bagColorTier=deriveBagColorTier(entity.tier),
+        tier=entity.tier,
+        mpCost=entity.mpCost,
+        mpEndCost=entity.mpEndCost,
+        description=entity.description,
     )
 
 

@@ -92,13 +92,16 @@ class Listener:
         packetType = packet.type
 
         if packetType == "RECONNECT":
-            self.debugger.info(f"RECONNECT received - moving to {packet.name}")
-            # Actually tearing down/reopening the socket happens elsewhere; the
-            # listener thread can't cleanly join/replace itself.
-            self.incomingQueue.put(("connecting", packet.name))
-            return
-
-        if packetType == "PING":
+            self.debugger.info(
+                f"RECONNECT received - moving to {packet.name!r} "
+                f"(host={packet.host!r} port={packet.port} gameId={packet.gameId})"
+            )
+            # No fast protocol-level ack needed - falls through to the
+            # universal incomingQueue.put() at the bottom like every other
+            # packet type. The actual socket teardown/reopen happens in the
+            # renderer (gameScreen._handshake/_connectedLoop), since this
+            # thread can't cleanly join/replace itself mid-recv().
+        elif packetType == "PING":
             pong = PacketHelper.createPacket("PONG")
             pong.serial = packet.serial
             pong.time = self._getTime()

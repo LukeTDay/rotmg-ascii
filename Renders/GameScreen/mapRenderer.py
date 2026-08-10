@@ -12,12 +12,7 @@ from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles
 from Networking.Listener import Listener
 from Networking.Ticker import Ticker
 
-from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow
-
-BAR_WIDTH = 20
-# The bar itself (BAR_WIDTH) plus the 2-column gap between the map area and
-# the HUD - see _drawHud's hudCol - and a little right-side margin.
-HUD_WIDTH_COLS = BAR_WIDTH + 4
+from Renders.GameScreen.uiPanel import PANEL_WIDTH_FRACTION
 
 # A monospace terminal character cell is roughly this many times taller than
 # it is wide (a common approximation - most terminal fonts are close to a
@@ -49,7 +44,9 @@ def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
     """
     maxY, maxX = stdscr.getmaxyx()
     mapAreaRows = maxY
-    mapAreaCols = max(1, maxX - HUD_WIDTH_COLS)
+    # Matches uiPanel.computePanelLayout's dividerCol formula exactly, so the
+    # map area and the panel always agree on where the boundary column is.
+    mapAreaCols = max(1, maxX - round(maxX * PANEL_WIDTH_FRACTION))
 
     minScaleX = max(1, round(MIN_SCALE_Y * CHAR_ASPECT_RATIO))
     radiusFromRows = max(0, mapAreaRows // MIN_SCALE_Y - 1) // 2
@@ -106,60 +103,15 @@ def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, map
                 pass
 
 
-def _drawBar(pad: curses.window, row: int, col: int, label: str, current: int, maximum: int,
-             fillPair: int, emptyPair: int, width: int = BAR_WIDTH) -> None:
-    """Old-school RPG bar: the label/numbers are centered *inside* the bar
-    itself rather than beside it - black text over a solid color background
-    where the bar is filled (`fillPair`), the same stat color as plain text
-    on the default background where it isn't (`emptyPair`)."""
-    filled = 0 if maximum <= 0 else round(width * max(0, min(current, maximum)) / maximum)
-    filled = max(0, min(width, filled))
-    text = f"{label} {current}/{maximum}"[:width].center(width)
-    try:
-        if filled > 0:
-            pad.addstr(row, col, text[:filled], curses.color_pair(fillPair))
-        if filled < width:
-            pad.addstr(row, col + filled, text[filled:], curses.color_pair(emptyPair))
-    except curses.error:
-        pass
-
-
-def _drawSolidBar(pad: curses.window, row: int, col: int, value: int,
-                   fillPair: int, width: int = BAR_WIDTH) -> None:
-    """Same box look as _drawBar, but always fully "filled" - for a stat like
-    fame that has no reliable max to be proportional against. Black text
-    (just the number, no label/max) over a solid color background across
-    the whole box."""
-    text = str(value)[:width].center(width)
-    try:
-        pad.addstr(row, col, text, curses.color_pair(fillPair))
-    except curses.error:
-        pass
-
-
-def _drawHud(stdscr: curses.window, pad: curses.window, player: PlayerData, mapAreaCols: int) -> None:
-    maxY, _ = stdscr.getmaxyx()
-    hudCol = mapAreaCols + 2
-    barRows = (0, 2, 4)  # Fame, HP, MP - 2 rows apart
-    hudHeight = barRows[-1] + 1
-    startRow = max(0, (maxY - hudHeight) // 2)
-    # nextClassQuestFame is -1 whenever a class has no further quest reward
-    # (e.g. already at max legendary rank), so it can't reliably be used as
-    # a bar's max - draw fame as a solid box (same look as HP/MP) instead of
-    # a proportional fill.
-    _drawSolidBar(pad, startRow + barRows[0], hudCol, player.fame, ColorPairs.FILL_YELLOW)
-    _drawBar(pad, startRow + barRows[1], hudCol, "HP", player.hp, player.maxHp,
-             ColorPairs.FILL_RED, ColorPairs.MAP_RED)
-    _drawBar(pad, startRow + barRows[2], hudCol, "MP", player.mp, player.maxMp,
-             ColorPairs.FILL_BLUE, ColorPairs.MAP_BLUE)
-
-
 def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, player: PlayerData,
               projectiles: ProjectileStore, listener: Listener, ticker: Ticker, ctx: Context) -> None:
-    """Draws one frame of the map + HUD onto the already-allocated game-screen
-    pad and blits it. Called once per loop iteration from
-    gameScreen.py's _connectedLoop, after that iteration's queue-drain/state-
-    apply/prune - so the frame always reflects the freshest state.
+    """Draws one frame of the map onto the already-allocated game-screen pad -
+    does NOT blit it (gameScreen.py's _connectedLoop draws the panel frame
+    and inventory panel on top of this same pad afterward, then blits once
+    at the very end - see uiPanel.drawPanelFrame/inventoryPanel.drawBars/
+    drawInventoryGrid). Called once per loop iteration from _connectedLoop,
+    after that iteration's queue-drain/state-apply/prune - so the frame
+    always reflects the freshest state.
 
     Centers on `ticker.pos`, not `player.pos` - `player.pos` only updates
     when a server NEWTICK arrives, so the render loop would just be
@@ -198,6 +150,3 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
 
     pad.erase()
     _drawMap(pad, scaleX, scaleY, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY)
-    _drawHud(stdscr, pad, player, mapAreaCols)
-
-    determineRefreshWindow(stdscr, pad, 0)

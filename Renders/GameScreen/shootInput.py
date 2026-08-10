@@ -125,14 +125,19 @@ def _resolveAimPoint(state: GameState, mouseWorld: Tuple[float, float]) -> Tuple
 def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, player: PlayerData,
                       outgoingQueue: "queue.Queue", state: GameState, shootState: AutoFireState,
                       moveDirection: Optional[Tuple[float, float]], debugger, projectileMap,
-                      projectiles: ProjectileStore) -> None:
+                      projectiles: ProjectileStore,
+                      mouseEvent: Optional[Tuple[int, int, int]]) -> None:
     """Consumes this frame's already-drained keys/events (see
     movementInput.drainKeys - shared with handleMovementInput since curses'
     input buffer only yields each keystroke once, so only one caller can
     ever drain the pad itself). Two things update shootState here: the
-    auto-fire toggle key, and any mouse motion/click (curses.KEY_MOUSE),
-    which is converted to a world position and remembered as the aim cursor.
-    `moveDirection` is this frame's resolved movement vector from
+    auto-fire toggle key, and `mouseEvent` (this frame's single pre-fetched
+    mouse event, see movementInput.getFrameMouseEvent - gameScreen.py's
+    _connectedLoop fetches it once per frame and threads it into both this
+    and panelInput.handlePanelInput, since curses.getmouse() must only ever
+    be called once per frame), which is converted to a world position and
+    remembered as the aim cursor. `moveDirection` is this frame's resolved
+    movement vector from
     handleMovementInput (or None) - it becomes the facing fallback used to
     aim when no mouse position is known yet (e.g. before any mouse event has
     arrived, or if this terminal doesn't report mouse motion - see
@@ -165,33 +170,18 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
     if moveDirection is not None:
         shootState.lastMoveDirection = moveDirection
 
-    sawMouseEvent = False
     for key in keys:
         if key in _AUTOFIRE_TOGGLE_KEYS:
             shootState.autoFire = not shootState.autoFire
             # State-changing, low-frequency (a manual toggle, not a per-shot
             # event) - worth logging, unlike the per-shot packet send below.
             debugger.info(f"Auto-fire {'enabled' if shootState.autoFire else 'disabled'}")
-        elif key == curses.KEY_MOUSE:
-            sawMouseEvent = True
 
-    if sawMouseEvent:
-        # curses.getmouse() only ever returns the single most recently
-        # dequeued mouse event, regardless of how many KEY_MOUSE entries
-        # ended up in this frame's drained batch - REPORT_MOUSE_POSITION can
-        # queue a KEY_MOUSE per pixel of cursor motion, so a fast mouse swipe
-        # used to call this (plus computeScale() inside screenToWorld) once
-        # per queued event, all but the last returning the exact same
-        # (already-stale) coordinates. Doing it once per frame instead was a
-        # real, noticeable frame-time regression fix, not just tidying.
-        try:
-            _, mouseCol, mouseRow, _, _ = curses.getmouse()
-        except curses.error:
-            mouseCol = mouseRow = None
-        if mouseCol is not None:
-            world = screenToWorld(stdscr, ticker, mouseRow, mouseCol)
-            if world is not None:
-                shootState.lastMouseWorld = world
+    if mouseEvent is not None:
+        mouseRow, mouseCol, _bstate = mouseEvent
+        world = screenToWorld(stdscr, ticker, mouseRow, mouseCol)
+        if world is not None:
+            shootState.lastMouseWorld = world
 
     if not shootState.autoFire or ticker.pos is None:
         return

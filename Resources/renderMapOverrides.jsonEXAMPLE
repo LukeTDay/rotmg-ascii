@@ -1,7 +1,8 @@
 {
   "objects": {
     "1286": {"chars": ["$"], "color": "MAGENTA"},
-    "1292": {"chars": ["$"], "color": "WHITE"}
+    "1292": {"chars": ["$"], "color": "WHITE"},
+    "2560": {"bagColorTier": "RED"}
   },
   "ground": {
     "27": {"chars": [".", ",", "'"]}

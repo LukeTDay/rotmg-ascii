@@ -34,7 +34,13 @@ class PlayerData:
         self.vitBoost = 0
         self.condition = []
         self.hasBackpack = False
-        self.inv = [-1 for i in range(20)]
+        self.backpackSlots = 0
+        # 12 base (INVENTORY0..11STAT) + 16 backpack (BACKPACK0..15STAT) -
+        # StatTypes.py defines all 16 backpack stat ids even though only the
+        # first 8 were ever parsed here until now (a real gap: a character
+        # with more than 8 backpack slots unlocked - e.g. 12, 24 slots total -
+        # had everything past BACKPACK7STAT silently dropped).
+        self.inv = [-1 for i in range(28)]
         self.size = 0
         self.nextLevelXp = 0
         self.clothingDye = 0
@@ -132,6 +138,17 @@ class PlayerData:
                 self.mpPots = stat.statValue
             elif stat.statType == StatTypes.HASBACKPACKSTAT:
                 self.hasBackpack = stat.statValue == 1
+            elif stat.statType == StatTypes.BACKPACKSLOTSSTAT:
+                # Not parsed anywhere in this repo's ported reference sources
+                # (pyrelay never defines it; rotmg_mitm_py's StatTypes only
+                # declares the enum value, never reads it) - real RotMG's
+                # backpack purchase is historically all-or-nothing (8 slots
+                # via HASBACKPACKSTAT), so this is a documented assumption,
+                # not a confirmed cross-checked one: treat this stat as the
+                # authoritative *count* of currently-unlocked backpack slots
+                # (0-8), for UI code (inventoryPanel.py) that needs to know
+                # how many backpack rows to actually draw this frame.
+                self.backpackSlots = stat.statValue
             elif stat.statType == StatTypes.NAMECHOSENSTAT:
                 self.nameChosen = stat.statValue != 0
             elif stat.statType == StatTypes.GUILDNAMESTAT:
@@ -168,7 +185,7 @@ class PlayerData:
                 self.projLifeMult = stat.statValue / 1000
             elif StatTypes.INVENTORY0STAT <= stat.statType <= StatTypes.INVENTORY11STAT:
                 self.inv[stat.statType-StatTypes.INVENTORY0STAT] = stat.statValue
-            elif StatTypes.BACKPACK0STAT <= stat.statType <= StatTypes.BACKPACK7STAT:
+            elif StatTypes.BACKPACK0STAT <= stat.statType <= StatTypes.BACKPACK15STAT:
                 self.inv[stat.statType-StatTypes.BACKPACK0STAT+12] = stat.statValue
             elif stat.statType == StatTypes.OPENEDATTIMESTAMP:
                 self.opendAtTimestamp = stat.statValue

@@ -59,6 +59,12 @@ def mergeOverrides(derived: dict[str, dict[int, RenderInfo]], overrides: dict) -
                 "isLootBag": info.isLootBag,
                 "isPortal": info.isPortal,
                 "isInteractiveNpc": info.isInteractiveNpc,
+                "weaponLabel": info.weaponLabel,
+                "bagColorTier": info.bagColorTier,
+                "tier": info.tier,
+                "mpCost": info.mpCost,
+                "mpEndCost": info.mpEndCost,
+                "description": info.description,
             }
             for entity_id, info in derived[category].items()
         }

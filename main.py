@@ -44,6 +44,7 @@ def main(stdscr : curses.window, debugger : Debugger):
     curses.init_pair(ColorPairs.FILL_RED, curses.COLOR_BLACK, curses.COLOR_RED)
     curses.init_pair(ColorPairs.FILL_BLUE, curses.COLOR_BLACK, curses.COLOR_BLUE)
     curses.init_pair(ColorPairs.FILL_YELLOW, curses.COLOR_BLACK, curses.COLOR_YELLOW)
+    curses.init_pair(ColorPairs.FILL_WHITE, curses.COLOR_BLACK, curses.COLOR_WHITE)
     stdscr.bkgd(" ", curses.color_pair(ColorPairs.DEFAULT))
 
     screen = Screen.accountSelect

@@ -1,7 +1,7 @@
 from Constants.Screen import Screen
 import Constants.GameIds as GameIds
 
-from Models.Context import Context, required
+from Models.Context import Context, PendingReconnectHello, required
 
 from Models.GameState import GameState
 from Models.PlayerData import PlayerData
@@ -12,8 +12,10 @@ import Networking.PacketHelper as PacketHelper
 from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
+from Renders.GameScreen import bottomPanel, inventoryPanel, itemInfoPeek, uiPanel
 from Renders.GameScreen.mapRenderer import drawFrame
-from Renders.GameScreen.movementInput import drainKeys, handleMovementInput
+from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
+from Renders.GameScreen.panelInput import handlePanelInput
 from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
 
 from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds
@@ -34,6 +36,14 @@ import curses, threading, queue, time
 # the screen visually redraws - not gameplay responsiveness. Also halves
 # total drawFrame/refresh/input-polling CPU load, not just the budget.
 FRAME_INTERVAL_SECONDS = 1 / 60
+
+# Returned by _handshake/_connectedLoop to mean "a RECONNECT was just handled
+# (socket torn down, ctx["PENDING_RECONNECT_HELLO"] set) - loop back through
+# _establishConnection instead of leaving gameScreen". Distinct from None
+# (proceed to the next stage as normal) and an actual Screen (leave
+# gameScreen for good, e.g. FAILURE -> charSelect) - neither of those two
+# existing return values can double as this third case.
+_RECONNECT = object()
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
@@ -56,16 +66,28 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
     pad.clrtobot()
     pad.nodelay(True)
 
-    if ctx.get("LISTENER") is None:
-        failure = _establishConnection(stdscr, pad, ctx)
-        if failure is not None:
-            return failure
+    # A RECONNECT (see _handleReconnect) loops back to the top instead of
+    # returning - same pad/screen, a fresh connection underneath. Nothing
+    # else in this loop needs to change: _establishConnection already draws
+    # its own "Connecting..." interstitial, and _handshake/_connectedLoop
+    # each recreate their own local state (GameState/PlayerData/etc.) fresh
+    # every call.
+    while True:
+        if ctx.get("LISTENER") is None:
+            failure = _establishConnection(stdscr, pad, ctx)
+            if failure is not None:
+                return failure
 
-    outcome = _handshake(stdscr, pad, ctx)
-    if outcome is not None:
-        return outcome
+        outcome = _handshake(stdscr, pad, ctx)
+        if outcome is _RECONNECT:
+            continue
+        if outcome is not None:
+            return outcome
 
-    return _connectedLoop(stdscr, pad, ctx)
+        result = _connectedLoop(stdscr, pad, ctx)
+        if result is _RECONNECT:
+            continue
+        return result
 
 
 def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen | None:
@@ -112,12 +134,19 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
     threading.Thread(target=listener.start, daemon=True).start()
     threading.Thread(target=sender.start, daemon=True).start()
 
+    # A RECONNECT (see _handleReconnect) stashes the gameId/keyTime/key the
+    # follow-up HELLO must carry instead of a fresh login's nexus/0/[] -
+    # popped (not just read) so a later *fresh* connect through this same
+    # function - e.g. retrying after a FAILURE bounced back to charSelect -
+    # doesn't accidentally reuse a stale reconnect's key material.
+    pendingReconnect = ctx.pop("PENDING_RECONNECT_HELLO", None)
+
     hello = PacketHelper.createPacket("HELLO")
-    hello.gameId = GameIds.nexus
+    hello.gameId = pendingReconnect.gameId if pendingReconnect is not None else GameIds.nexus
     hello.buildVersion = required(ctx.get("buildVersion"), "buildVersion")
     hello.accessToken = required(ctx.get("accessToken"), "accessToken")
-    hello.keyTime = 0
-    hello.key = []
+    hello.keyTime = pendingReconnect.keyTime if pendingReconnect is not None else 0
+    hello.key = pendingReconnect.key if pendingReconnect is not None else []
     hello.userPlatform = "rotmg"
     hello.playPlatform = "rotmg"
     hello.userToken = required(ctx.get("clientToken"), "clientToken")
@@ -127,6 +156,12 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
 
 
 def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen | None:
+    """Returns None on success (proceed to _connectedLoop), a Screen to leave
+    gameScreen entirely (FAILURE -> charSelect), or the module-level
+    _RECONNECT sentinel if a RECONNECT arrived mid-handshake (rare, but the
+    server could in principle bounce a client again before CREATESUCCESS) -
+    the caller (drawGame) loops back through _establishConnection either way.
+    """
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
     outgoingQueue = required(ctx.get("OUTGOINGQUEUE"), "OUTGOINGQUEUE")
@@ -142,14 +177,11 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
         try:
             while True:
                 event = incomingQueue.get_nowait()
-
-                if isinstance(event, tuple):
-                    _, mapName = event
-                    continue
-
                 packetType = event.type
+
                 if packetType == "MAPINFO":
                     mapName = event.name
+                    ctx["CURR_MAP_NAME"] = mapName
                     debugger.info(f"MAPINFO received: {mapName}")
                     load = PacketHelper.createPacket("LOAD")
                     load.charId = required(ctx.get("CURR_CHAR_ID"), "CURR_CHAR_ID")
@@ -157,6 +189,9 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                     outgoingQueue.put(load)
                 elif packetType == "FAILURE":
                     return _handleFailure(stdscr, pad, ctx, event)
+                elif packetType == "RECONNECT":
+                    _handleReconnect(ctx, event)
+                    return _RECONNECT
                 elif packetType == "CREATESUCCESS":
                     debugger.info(f"CREATESUCCESS - handshake complete, objectId={event.objectId}")
                     showAllyShoot = PacketHelper.createPacket("SHOWALLYSHOOT")
@@ -236,6 +271,10 @@ def _applyAccountList(ctx: Context, event) -> None:
 
 
 def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen:
+    """May also return the module-level _RECONNECT sentinel (see drawGame) -
+    the type hint stays Screen since Python doesn't enforce it and every
+    real caller already checks for the sentinel before treating the result
+    as a Screen."""
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
     outgoingQueue = required(ctx.get("OUTGOINGQUEUE"), "OUTGOINGQUEUE")
@@ -253,10 +292,11 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         try:
             while True:
                 event = incomingQueue.get_nowait()
-                if isinstance(event, tuple):
-                    continue
                 if event.type == "FAILURE":
                     return _handleFailure(stdscr, pad, ctx, event)
+                elif event.type == "RECONNECT":
+                    _handleReconnect(ctx, event)
+                    return _RECONNECT
                 elif event.type == "UPDATE":
                     state.applyUpdate(event)
                     for obj in event.newObjs:
@@ -289,6 +329,27 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                         )
                 elif event.type == "ACCOUNTLIST":
                     _applyAccountList(ctx, event)
+                elif event.type == "INVRESULT":
+                    # The server's ack/nack for the last INVSWAP/USEITEM this
+                    # client sent - confirmed (rotmg_mitm_py's BuffAbility
+                    # plugin, see CLAUDE.local.md's Reference projects)
+                    # unknownBool is a success flag (False = silently
+                    # rejected - the swap never happened server-side, no
+                    # stat delta will ever follow it) and unknownByte
+                    # distinguishes a swap ack (0) from a plain item-use ack
+                    # (1). Not needed to actually reflect a *successful*
+                    # swap - that already arrives generically via the next
+                    # NEWTICK/UPDATE's ordinary INVENTORY*/BACKPACK* stat
+                    # deltas (GameState.applyNewTick / PlayerData.parseStats
+                    # apply to any tracked object, player or bag, with no
+                    # INVSWAP-specific code needed) - logged here purely so
+                    # a *rejected* swap is visible in Debug/debug.txt instead
+                    # of just silently doing nothing.
+                    if not event.unknownBool:
+                        debugger.warning(
+                            f"INVRESULT: swap/use REJECTED by server "
+                            f"(fromSlot={event.fromSlot} toSlot={event.toSlot})"
+                        )
         except queue.Empty:
             pass
         projectiles.prune()
@@ -296,10 +357,29 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
 
         drawFrameStart = time.time()
         drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
+        # Panel frame + relocated HUD bars + inventory grid + item-info peek
+        # + bottom-panel widget are drawn on top of the same pad drawFrame
+        # just drew the map onto - this app composites everything onto one
+        # pad per frame, then blits it once (determineRefreshWindow below),
+        # not once per drawing step.
+        maxY, maxX = stdscr.getmaxyx()
+        panelLayout = uiPanel.computePanelLayout(maxY, maxX)
+        friendsList = ctx.get("FRIENDSLIST", set())
+        guildMembers = ctx.get("GUILDMEMBERS", set())
+        lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
+        uiPanel.drawPanelFrame(pad, panelLayout)
+        inventoryPanel.drawBars(pad, panelLayout, player)
+        inventoryPanel.drawInventoryGrid(pad, panelLayout, player)
+        peekedObjectType = ctx.setdefault("PEEKED_OBJECT_TYPE", None)
+        itemInfoPeek.drawItemInfoPeek(pad, panelLayout, peekedObjectType, projectileMap)
+        bottomPanel.drawBottomPanel(pad, panelLayout, ctx, state, ticker, listener.objectId, friendsList,
+                                     guildMembers, lockedAccounts)
+        determineRefreshWindow(stdscr, pad, 0)
         drawFrameMs = (time.time() - drawFrameStart) * 1000
 
         keysDrainStart = time.time()
         keys = drainKeys(pad)
+        mouseEvent = getFrameMouseEvent(keys)
         keysDrainMs = (time.time() - keysDrainStart) * 1000
 
         movementStart = time.time()
@@ -308,8 +388,13 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
 
         shootStart = time.time()
         handleShootInput(keys, stdscr, ticker, player, outgoingQueue, state, shootState, moveDirection, debugger,
-                          projectileMap, projectiles)
+                          projectileMap, projectiles, mouseEvent)
         shootMs = (time.time() - shootStart) * 1000
+
+        panelInputStart = time.time()
+        handlePanelInput(mouseEvent, stdscr, ctx, panelLayout, player, state, ticker, listener, outgoingQueue,
+                          projectileMap, friendsList, guildMembers, lockedAccounts)
+        panelInputMs = (time.time() - panelInputStart) * 1000
 
         elapsed = time.time() - frameStart
         remaining = FRAME_INTERVAL_SECONDS - elapsed
@@ -320,14 +405,16 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             debugger.warning(
                 f"Frame took {elapsed * 1000:.1f}ms, over the {FRAME_INTERVAL_SECONDS * 1000:.1f}ms budget "
                 f"(queueDrain={queueDrainMs:.1f}ms drawFrame={drawFrameMs:.1f}ms keysDrain={keysDrainMs:.1f}ms "
-                f"movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms)"
+                f"movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms panelInput={panelInputMs:.1f}ms)"
             )
         time.sleep(max(0.0, remaining))
 
 
-def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, packet) -> Screen:
-    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
-    debugger.error(f"Disconnected from game server: {packet.errorDescription}")
+def _teardownConnection(ctx: Context) -> None:
+    """Stops the 3 worker threads, closes the socket, and clears the 5
+    connection-related ctx keys - shared by _handleFailure (leaves
+    gameScreen for charSelect) and _handleReconnect (loops back through
+    _establishConnection instead, see drawGame)."""
     listener = ctx.get("LISTENER")
     sender = ctx.get("SENDER")
     ticker = ctx.get("TICKER")
@@ -346,6 +433,41 @@ def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, pack
     for key in ("LISTENER", "SENDER", "TICKER", "INCOMINGQUEUE", "OUTGOINGQUEUE"):
         if key in ctx:
             del ctx[key]
+
+
+def _handleReconnect(ctx: Context, packet) -> None:
+    """A RECONNECT means the server wants this client on a different game
+    instance - e.g. after sending USEPORTAL, or after dying/entering the
+    Nexus - possibly the same physical server (packet.host/.name empty) or a
+    genuinely different one. Mirrors pyrelay's Client.onReconnect/connect
+    (see CLAUDE.local.md's Reference projects): only overwrite the stored
+    server host when the packet actually names one, and always replace
+    gameId/keyTime/key unconditionally for the follow-up HELLO. Tears the
+    current connection down; the caller (_handshake/_connectedLoop) is
+    responsible for returning the _RECONNECT sentinel so drawGame's loop
+    re-enters _establishConnection instead of leaving gameScreen.
+    """
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info(f"RECONNECT: moving to {packet.name!r} (host={packet.host!r})")
+    _teardownConnection(ctx)
+
+    if packet.host:
+        ctx["CURR_SERVER"] = packet.host
+    ctx["PENDING_RECONNECT_HELLO"] = PendingReconnectHello(packet.gameId, packet.keyTime, packet.key)
+
+    # Stale references to objects on the map being left behind - clear so
+    # the new map's panel starts clean instead of pointing at ids that won't
+    # resolve to anything once the old GameState is discarded.
+    ctx["PEEKED_OBJECT_TYPE"] = None
+    ctx["SELECTED_SLOT"] = None
+    ctx["BOTTOM_PANEL_CYCLE_INDEX"] = 0
+    ctx["BOTTOM_PANEL_CANDIDATE_IDS"] = frozenset()
+
+
+def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, packet) -> Screen:
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.error(f"Disconnected from game server: {packet.errorDescription}")
+    _teardownConnection(ctx)
 
     pad.move(0, 0)
     pad.clrtobot()
