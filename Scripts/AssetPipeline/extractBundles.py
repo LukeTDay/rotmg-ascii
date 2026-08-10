@@ -1,26 +1,15 @@
 """
-Extracts raw game-data assets (XML/JSON TextAssets, the binary sprite-atlas
-index, and the four spritesheet PNGs) from the local RotMG Exalt Unity
-install into `Resources/_generated/`, for the later pipeline phases to parse.
+Extracts raw game-data assets (XML/JSON TextAssets, the binary sprite atlas
+index, four spritesheet PNGs) from the local RotMG Exalt Unity install into
+`Resources/_generated/`.
 
-Adapted from exalt-extractor's `utils/Resources.py`/`utils/Extractor.py`
-approach (walk every file in the install dir, load with UnityPy, classify by
-Unity type), but reworked against the real data found in a live install
-rather than that project's assumptions:
-
-- exalt-extractor looks for a `TextAsset` literally named "spritesheet" and
-  `json.loads()`s it. The real asset is named "spritesheetf" and is a binary
-  blob (magic bytes are a length-prefixed record format, not JSON) — dumped
-  here as raw bytes; parsing it is Phase 2's job.
-- exalt-extractor classifies TextAssets as XML-or-not via a hardcoded name
-  blacklist. That list goes stale (it already doesn't include this game
-  version's non-XML names). This instead sniffs each TextAsset's first
-  non-whitespace byte (`<` -> XML, `{`/`[` -> JSON, anything else -> binary)
-  so it doesn't need updating when the game adds/renames files.
-- Confirmed against a real install: every file in the install directory
-  loads cleanly through `UnityPy.load()` (files with no Unity objects just
-  come back with an empty `.objects`, no exception), so no per-file
-  try/except dance is needed there.
+Adapted from exalt-extractor's Resources.py/Extractor.py, with two fixes
+found against a real install: the sprite atlas TextAsset is named
+"spritesheetf" and is a binary blob, not JSON as exalt-extractor assumes;
+and TextAssets are classified by sniffing their first byte (`<`/`{`/`[`)
+instead of a hardcoded name blacklist, which goes stale across game updates.
+Every file loads cleanly through `UnityPy.load()` (no per-file try/except
+needed) - confirmed against a real install.
 """
 
 import json
@@ -45,12 +34,9 @@ OUTPUT_ROOT = Path(__file__).resolve().parents[2] / "Resources" / "_generated"
 
 
 def _script_bytes(text_asset) -> bytes:
-    """
-    UnityPy decodes `m_Script` as `str` using surrogateescape (it doesn't
-    know ahead of time whether a TextAsset is text or binary), so binary
-    assets come back with lone surrogates standing in for the original
-    non-UTF8 bytes. Re-encoding with the same error handler round-trips
-    those back to the exact original bytes.
+    """UnityPy decodes m_Script as str via surrogateescape (doesn't know if a
+    TextAsset is text or binary) - re-encoding the same way round-trips
+    binary assets back to their exact original bytes.
     """
     script = text_asset.m_Script
     return script.encode("utf-8", errors="surrogateescape") if isinstance(script, str) else bytes(script)

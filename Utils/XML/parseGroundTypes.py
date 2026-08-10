@@ -5,11 +5,8 @@ from typing import Dict, List, Optional
 
 from Models.GroundTypeData import GroundTypeData
 
-# Resources/ground.xml (this module's original source) is stale - it was
-# superseded by Scripts/AssetPipeline's extraction into Resources/_generated/
-# (see .gitignore/CLAUDE.md) and no longer exists on disk, which silently
-# left every groundIdToData() lookup returning None. Read from the same
-# manifest-listed generated files the asset pipeline itself uses instead.
+# Resources/ground.xml no longer exists (superseded by Resources/_generated/,
+# see CLAUDE.md) - read the manifest-listed generated files instead.
 GENERATED_XML_DIR = Path("Resources/_generated/xml")
 MANIFEST_PATH = Path("Resources/_generated/json/manifest.json")
 
@@ -49,9 +46,7 @@ def _parseColor(elem: Optional[et.Element]) -> Optional[int]:
 
 
 def parseGroundTypes(xmlText: str) -> Dict[int, GroundTypeData]:
-    """Pure parse: XML text -> {groundTypeId: GroundTypeData}. No disk IO here -
-    kept separate from the file-loading loop in _loadGroundTypes() so each
-    generated XML file's text can be handed to it independently."""
+    """Pure parse: XML text -> {groundTypeId: GroundTypeData}. No disk IO."""
     groundTypes: Dict[int, GroundTypeData] = {}
     root = et.fromstring(xmlText)
     for ground in root.findall("Ground"):
@@ -78,11 +73,8 @@ def parseGroundTypes(xmlText: str) -> Dict[int, GroundTypeData]:
 
 
 def _loadTileFileNames(manifest_path: Path = MANIFEST_PATH) -> List[str]:
-    """Reads the same manifest.json Scripts/AssetPipeline/parseGameXml.py
-    uses, returning its "tiles" file list in order - the global ground.xml
-    first, then ~55 per-dungeon override files (e.g. dungeon-specific lava/
-    chasm variants). Never raises: an unreadable/missing manifest just means
-    no ground types load, same fail-open posture as a single missing file."""
+    """Returns manifest.json's "tiles" file list. Never raises - a missing/
+    unreadable manifest just yields no ground types."""
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (IOError, OSError, json.JSONDecodeError):
@@ -94,10 +86,8 @@ _groundTypesCache: Optional[Dict[int, GroundTypeData]] = None
 
 
 def _loadGroundTypes() -> Dict[int, GroundTypeData]:
-    """Merges every ground-type XML file the manifest lists under "tiles" -
-    later files win on id collision, mirroring parseGameXml.py's parseAll()
-    exactly, so this runtime loader and the asset pipeline agree on which
-    ground type a given id resolves to."""
+    """Merges every manifest-listed ground XML file; later files win on id
+    collision (mirrors parseGameXml.py's parseAll())."""
     global _groundTypesCache
     if _groundTypesCache is None:
         merged: Dict[int, GroundTypeData] = {}
@@ -115,7 +105,5 @@ def _loadGroundTypes() -> Dict[int, GroundTypeData]:
 
 
 def groundIdToData(groundType: int) -> Optional[GroundTypeData]:
-    """Mirrors Utils.XML.parseObjectNames.objectIdToName's shape: never
-    raises, returns None for unknown/missing ids so callers can fall back
-    gracefully."""
+    """Never raises; returns None for unknown ids."""
     return _loadGroundTypes().get(groundType)

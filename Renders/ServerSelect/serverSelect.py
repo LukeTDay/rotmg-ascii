@@ -27,10 +27,8 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
     servers : Dict[str, str] = required(ctx.get("SERVERS"), "SERVERS")
     serverNames : List[str] = sorted(servers.keys())
 
-    # Row-major grid: two server names per row, index i -> (row i//2, col i%2).
-    # The trailing button row always has both entries, so nav bounds-checking
-    # per row (see key handling below) only ever has to special-case the
-    # possible odd-numbered-servers last grid row.
+    # Button row always has both entries, so nav bounds-checking only ever
+    # special-cases an odd-numbered last grid row.
     gridRows : List[List[int]] = [
         list(range(i, min(i + 2, len(serverNames))))
         for i in range(0, len(serverNames), 2)
@@ -105,9 +103,8 @@ def _printServerRow(stdscr : curses.window,
                     nameWidth : int,
                     rowSelected : bool,
                     colIdx : int) -> int:
-    # Anchored on a fixed-width two-column template (both columns padded to
-    # the longest server name) so every row - including a shorter last row -
-    # lines up at the same x instead of each re-centering to its own content.
+    # Fixed-width two-column template so every row lines up at the same x
+    # instead of re-centering to its own content.
     anchor = f"{'x' * nameWidth}{' ' * COLUMN_GAP}{'x' * nameWidth}"
     x = centeredX(stdscr, anchor)
 

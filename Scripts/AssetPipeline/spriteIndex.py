@@ -1,31 +1,20 @@
 """
-Decodes `spritesheetf.bin` (extracted by `extractBundles.py`) — the binary
-file that maps a logical sprite-sheet name + index (e.g. the "lofiObj3"/0x555
-in an XML `<Texture><File>lofiObj3</File><Index>0x555</Index></Texture>`
-reference) to a pixel rect within one of the four real spritesheet PNGs.
+Decodes `spritesheetf.bin` (from `extractBundles.py`) - the binary file
+mapping a sprite-sheet name + index (from XML `<Texture><File>/<Index>`
+refs) to a pixel rect in one of the four spritesheet PNGs.
 
-It's a FlatBuffers buffer with no bundled schema. `schemas/spritesheet.fbs`
-is a schema recovered from the sibling reference project RealmShark's
-FlatBuffers-compiler-generated Java bindings (`assets/flattbuffer/*.java` —
-see CLAUDE.local.md's "Reference projects" section), independently confirmed
-by manually walking the wire format against real extracted bytes, then
-verified end to end by cropping known sprites (e.g. the Health Potion) out
-of the real PNGs at the decoded coordinates.
+FlatBuffers buffer with no bundled schema; `schemas/spritesheet.fbs` was
+recovered from RealmShark's compiled Java bindings and confirmed by
+decoding real sprites (e.g. cropping Health Potion) at the resulting coords.
 
-`Scripts/AssetPipeline/generated/` (committed) holds the actual Python
-bindings `flatc` compiled from that schema — regenerate them if
-`spritesheet.fbs` ever needs to change:
+`generated/` (committed) holds the flatc-compiled Python bindings - only
+regenerate them (`flatc` needed, not in requirements.txt) if
+spritesheet.fbs changes:
 
     flatc --python -o Scripts/AssetPipeline/generated Scripts/AssetPipeline/schemas/spritesheet.fbs
 
-`flatc` itself is only needed for that regeneration step, not to run the
-pipeline day to day — hence it's not in `requirements.txt`, only
-`flatbuffers` (the runtime the generated code imports) is.
-
-`aId` on a `Sprite` identifies which of the four spritesheet PNGs it lives
-in, 1-indexed in this fixed order (confirmed via RealmShark's
-`ImageBuffer.java`): 1=groundTiles, 2=characters, 3=characters_masks,
-4=mapObjects.
+`aId` on a Sprite selects which spritesheet PNG it lives in, fixed order:
+1=groundTiles, 2=characters, 3=characters_masks, 4=mapObjects.
 """
 
 import sys
@@ -34,9 +23,7 @@ from pathlib import Path
 
 GENERATED_DIR = Path(__file__).resolve().parent / "generated"
 if str(GENERATED_DIR) not in sys.path:
-    # flatc's Python codegen emits flat, same-directory `from X import X`
-    # imports between the generated modules rather than package-relative
-    # ones, so it expects its own output directory to be importable directly.
+    # flatc's codegen uses flat same-directory imports, not package-relative ones.
     sys.path.insert(0, str(GENERATED_DIR))
 
 from SpriteSheetRoot import SpriteSheetRoot  # noqa: E402

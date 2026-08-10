@@ -13,27 +13,20 @@ import curses, threading, queue, time, requests,os
 from typing import List
 
 def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
-    """
-    The goal of this screen is to give the user something 
-    to look at while all of their information is fetched
-    from backend API endpoints.
-    """
+    """Screen shown while account/friends/guild/char/server data is fetched."""
 
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     debugger.info("Entering login screen")
 
-    #Erasing the screen before making the pad
     stdscr.erase()
     pad = curses.newpad(1500 ,500)
 
     pad.keypad(True)
     pad.clrtobot()
 
-    #yIndex for printing to the pad throughout the function
     yIndex = drawCenteredBanner(stdscr, pad, 0, "Checking")
     determineRefreshWindow(stdscr,pad,yIndex)
 
-    #Loading the account so that it can be verified
     currentAccount = required(ctx.get("account"), "account")
 
     resultQueue = queue.Queue()

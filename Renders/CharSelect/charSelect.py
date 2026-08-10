@@ -88,17 +88,10 @@ def _printSplitRow(stdscr : curses.window,
                    leftPair : int | None,
                    rightPair : int | None,
                    selected : bool) -> int:
-    """Draws leftText/rightText spread across width, each independently
-    plain or colored via a native curses.COLOR_*/init_pair() pair (None =
-    plain) - same "no RGB remap" approach Debug/cp437_full_charset_16color_test.py
-    confirmed renders identically on Windows and Linux (raw ANSI truecolor
-    doesn't survive curses.addstr - see CLAUDE.md).
-
-    When selected, plain segments get A_REVERSE (the usual highlighted-row
-    look) but colored segments switch to their ColorPairs.SELECTED_VARIANT
-    (same foreground, white background) instead - reverse-video would swap
-    fg/bg and wash out the color's hue, and the point of coloring these in
-    the first place is for it to stay visible while selected."""
+    """Draws leftText/rightText across width, each plain or colored via a
+    curses color pair. When selected, plain segments get A_REVERSE but
+    colored segments swap to ColorPairs.SELECTED_VARIANT instead - plain
+    reverse-video would wash out the color's hue."""
     gap = max(1, width - len(leftText) - len(rightText))
     line = f"{leftText}{' ' * gap}{rightText}"
     x = centeredX(stdscr, line)
@@ -137,9 +130,8 @@ def _equipSlotText(objectId : int) -> str:
     return objectIdToName(objectId) or str(objectId)
 
 def _truncateItemName(name : str, width : int) -> str:
-    """Truncates a single item name to width, replacing the cut-off tail with
-    "..." rather than chopping it silently - keeps a truncated name readable
-    ("Sprite's Wand of...") instead of ending mid-word with no indication."""
+    """Truncates name to width, replacing a cut-off tail with "..." so it
+    reads as truncated rather than ending mid-word silently."""
     if len(name) <= width:
         return name
     if width <= 3:
@@ -147,13 +139,10 @@ def _truncateItemName(name : str, width : int) -> str:
     return name[:width - 3] + "..."
 
 def _buildEquipmentRow(stdscr : curses.window, char : CharListData) -> str:
-    """Resolves the first 4 equipment slots (weapon/ability/armor/ring -
-    equipmentList can carry more entries than that, e.g. inventory/backpack,
-    which this deliberately ignores) to names, and truncates each name
-    individually so the combined row never exceeds the terminal's actual
-    width - instead of letting the tail of the whole line get blindly clipped
-    by drawCenteredText, which could cut an early item's name off mid-word or
-    drop later items entirely."""
+    """Resolves the first 4 equipment slots to names (equipmentList's later
+    inventory/backpack entries are ignored) and truncates each individually
+    so the combined row fits the terminal width - rather than letting
+    drawCenteredText blindly clip the tail of the whole line."""
     names = [_equipSlotText(i) for i in char.equipmentList[:4]]
     if not names:
         return ""
@@ -187,7 +176,6 @@ def printBackSlot(stdscr : curses.window,
                   pad : curses.window,
                   y : int,
                   attr : int) -> int:
-    # Kept the same total height as printCharSlot (ROWS_PER_SLOT rows) so the
-    # scroll/visibleRows math above can treat every entry as a uniform slot.
+    # Same total height as printCharSlot so scroll math treats every entry uniformly.
     y = drawCenteredText(stdscr, pad, y, "Back to Account Select", attr)
     return y + 3

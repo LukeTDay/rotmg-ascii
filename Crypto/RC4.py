@@ -2,7 +2,6 @@ STATE_LENGTH = 256
 
 class RC4:
     def __init__(self, key: str):
-        # key is a hex string
         self.key = bytearray.fromhex(key)
         self.x = 0
         self.y = 0

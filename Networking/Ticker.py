@@ -8,13 +8,9 @@ from Constants.StatusEffects import SLOWED, SPEEDY, NINJASPEEDY
 
 TICK_INTERVAL = 1 / 60
 
-# RotMG's real movement-speed formula (confirmed matching, independently, in
-# both pyrelay's Client.getSpeed and rotmg_mitm_py's VaultWalk plugin -
-# tiles per millisecond): speed = MIN_SPEED + (spd+spdBoost)/75 *
-# (MAX_SPEED-MIN_SPEED), SLOWED overrides to flat MIN_SPEED (not a 0.5x
-# multiplier), SPEEDY/NINJASPEEDY apply a 1.5x multiplier on top of the
-# stat-derived speed (computed after the SPD formula, skipped entirely if
-# SLOWED short-circuited it).
+# RotMG's real movement-speed formula (tiles/ms; confirmed against two reference
+# projects). SLOWED overrides to flat MIN_SPEED; SPEEDY/NINJASPEEDY apply 1.5x
+# on top of the stat-derived speed, skipped if SLOWED already short-circuited it.
 MIN_SPEED = 0.004
 MAX_SPEED = 0.0096
 HASTE_MULTIPLIER = 1.5
@@ -36,9 +32,8 @@ class RepeatTimer(threading.Timer):
 
 
 class Ticker:
-    """Local movement dead-reckoning between server ticks. Runs on its own steady
-    10Hz clock, independent of the network and render loop - never touches the
-    socket or either queue itself."""
+    """Dead-reckons movement locally on a steady 60Hz clock between server ticks;
+    never touches the socket or either queue itself."""
 
     def __init__(self, connectedTime: int, debugger) -> None:
         self.connectedTime = connectedTime

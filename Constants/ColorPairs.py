@@ -1,8 +1,5 @@
 # Curses color pair numbers, allocated once via curses.init_pair() in main.py.
-# Native curses.COLOR_* palette only (no init_color/RGB remap) - the approach
-# Debug/cp437_full_charset_16color_test.py confirmed renders identically on
-# Windows and Linux. See CLAUDE.md's "Color rendering" section for why raw
-# ANSI truecolor isn't used instead (it doesn't survive curses.addstr).
+# Native curses.COLOR_* palette only - RGB remap/raw ANSI don't survive addstr on both platforms.
 
 DEFAULT = 1
 FAME = 2
@@ -10,9 +7,7 @@ SEASONAL = 3
 STANDARD = 4
 CRUCIBLE = 5
 
-# "_SELECTED" variants: same foreground, white background - used instead of
-# the base pair when the row is highlighted, so colored text stays its own
-# hue with a highlight behind it instead of being reverse-video'd flat.
+# Same foreground, white background - avoids reverse-video washing out the hue.
 FAME_SELECTED = 6
 SEASONAL_SELECTED = 7
 STANDARD_SELECTED = 8
@@ -25,9 +20,7 @@ SELECTED_VARIANT = {
     CRUCIBLE: CRUCIBLE_SELECTED,
 }
 
-# Generic pairs for the map/HUD renderer - maps renderMap.json's 8 base
-# curses color-name strings (and the HUD's HP/MP/Fame bars) straight to a
-# pair number, independent of the semantic menu pairs above.
+# Generic pairs for the map/HUD renderer, independent of the semantic menu pairs above.
 MAP_BLACK = 10
 MAP_RED = 11
 MAP_GREEN = 12
@@ -48,9 +41,7 @@ MAP_COLOR_TO_PAIR = {
     "WHITE": MAP_WHITE,
 }
 
-# "On-color" fill variants for the HUD's HP/MP/Fame bars: black text over a
-# solid color background, used for the filled portion of each bar so the
-# label/numbers sit inside the bar itself instead of beside it.
+# Black text on solid color, for the filled portion of HUD bars - text sits inside the bar.
 FILL_RED = 18
 FILL_BLUE = 19
 FILL_YELLOW = 20

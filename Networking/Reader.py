@@ -86,14 +86,11 @@ class Reader:
         return value
 
     def skipBytes(self, length):
-        """Advances the index by length without reading/copying anything - for
-        skipping fixed-size records nothing needs decoded."""
+        """Advances the index without decoding - for records the caller doesn't need."""
         self.index += length
 
     def skipStr(self):
-        """Advances past a length-prefixed string without decoding it - for hot
-        paths that need to stay in sync with the reader but don't care about
-        the value."""
+        """Advances past a length-prefixed string without decoding it."""
         strLen = self.readUnsignedShort()
         self.index += strLen
 

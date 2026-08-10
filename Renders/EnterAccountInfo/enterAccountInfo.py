@@ -21,17 +21,13 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     pad.keypad(True)
     pad.clrtobot()
 
-    #Keeping track of yIndex so that it can be updated dynamically
     yIndex = 0
 
-    #If an account has no accounts registered in their JSON file they will
-    # be disallowed from returning to the account select screen
+    # No stored accounts means there's nothing to go back to.
     canSelect = True
     if len(storedAccounts) == 0:
         canSelect = False
 
-    #Only print this warning for accounts that can go back to the account
-    # select screen
     if canSelect:
         drawCenteredText(stdscr,pad,yIndex,"If you would like to exit and select an already stored account please press ESC")
         determineRefreshWindow(stdscr,pad,yIndex)
@@ -45,13 +41,9 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         drawCenteredText(stdscr,pad,yIndex, "You must input an account to move forward")
         determineRefreshWindow(stdscr,pad,yIndex)
 
-    #In the case that passwords do not match will need to use this variable
-    # as an anchor of where the passwords section started
+    # Anchor to reset back to if this section needs to be retried.
     currYIndex = yIndex
     while True:
-        #This resets the yIndex to the start of the password section
-        # as well as clearing anything beneath it that may have been
-        # printed before
         yIndex = currYIndex
         pad.move(yIndex,0)
         pad.clrtobot()
@@ -71,20 +63,15 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             determineRefreshWindow(stdscr,pad,yIndex)
             time.sleep(2)
             continue
-        #Mostly added these so pylance would stop whining
+        # Type-checker appeasement.
         assert email is not None, "Email should never be a none here"
         break
     yIndex += 2
 
-    #In the case that passwords do not match will need to use this variable
-    # as an anchor of where the passwords section started
+    # Anchor to reset back to if this section needs to be retried.
     currYIndex = yIndex
 
-    #This will continue until exit or both passwords are the same
     while True:
-        #This resets the yIndex to the start of the password section
-        # as well as clearing anything beneath it that may have been
-        # printed before
         yIndex = currYIndex
         pad.move(yIndex,0)
         pad.clrtobot()
@@ -126,9 +113,6 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
                     continue
                 return Screen.accountSelect
 
-    #Verify that the email and password combination actually work.
-    # If they do prompt for an alias and save the account to the json file
-    # If it does not notify the user and then recall this module
     yIndex += 2
 
     resultQueue = queue.Queue()
@@ -243,7 +227,6 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     }
     storedAccounts.append(newEntry)
 
-    #Storing the accounts in the credentials folder
     dirExists = os.path.isdir("Credentials/")
     if not dirExists:
         try:
@@ -292,19 +275,16 @@ def drawCenteredText(stdscr : curses.window,
                      y : int,
                      text : str,
                      attr : int = curses.A_NORMAL) -> int:
-    """Writes a single line centered against the terminal's actual width
-    (not the pad's fixed width). Returns the next free row."""
+    """Centers text against the terminal's actual width (not the pad's). Returns the next free row."""
     _, maxX = stdscr.getmaxyx()
     x = max(0, (maxX - len(text)) // 2)
     pad.addstr(y, x, text[:max(0, maxX - x)], attr)
     return y + 1
 
 def centeredX(stdscr : curses.window, text : str) -> int:
-    """Column that would center this text against the terminal's actual width.
-    Callers that redraw a growing/shrinking string (e.g. live input echo)
-    should compute this once from a fixed-length anchor string and reuse it,
-    rather than recomputing from the current text each redraw - recomputing
-    would recenter (and therefore visibly shift) the line on every keystroke."""
+    """Column to center this text at. For live-editable text, compute once from a
+    fixed-length anchor string and reuse it - recomputing each redraw shifts the
+    line as the buffer grows/shrinks."""
     _, maxX = stdscr.getmaxyx()
     return max(0, (maxX - len(text)) // 2)
 
@@ -314,20 +294,17 @@ def drawTextAt(stdscr : curses.window,
                x : int,
                text : str,
                attr : int = curses.A_NORMAL) -> int:
-    """Writes text at a fixed column instead of recentering it. Returns the
-    next free row."""
+    """Writes text at a fixed column instead of recentering it. Returns the next free row."""
     _, maxX = stdscr.getmaxyx()
     pad.addstr(y, x, text[:max(0, maxX - x)], attr)
     return y + 1
 
 def _figletLines(text : str, font : str = "standard") -> List[str]:
-    # width=1000 disables pyfiglet's default 80-column auto-wrap, which would
-    # otherwise silently wrap longer banners onto a garbled second line.
+    # width=1000 disables pyfiglet's 80-col auto-wrap (would otherwise garble longer banners).
     return pyfiglet.Figlet(font=font, width=1000).renderText(text).rstrip("\n").split("\n")
 
 def figletLineCount(text : str, font : str = "standard") -> int:
-    """Row count a banner of this text/font will take up, without drawing it -
-    lets a caller lay out content around a banner before rendering it."""
+    """Row count a banner would take, without drawing it (for layout before rendering)."""
     return len(_figletLines(text, font))
 
 def drawCenteredBanner(stdscr : curses.window,
@@ -336,10 +313,9 @@ def drawCenteredBanner(stdscr : curses.window,
                        text : str,
                        font : str = "standard",
                        attr : int = curses.A_NORMAL) -> int:
-    """Renders text as large pyfiglet ASCII-art, each line centered against the
-    terminal's actual width (re-read every call, so it re-centers if the
-    terminal is resized between frames). Returns the next free row so callers
-    can stack more content underneath."""
+    """Renders pyfiglet ASCII-art, each line centered against the terminal's
+    current width (re-read every call, so it re-centers on resize). Returns
+    the next free row."""
     _, maxX = stdscr.getmaxyx()
     lines = _figletLines(text, font)
     for i, line in enumerate(lines):
@@ -352,8 +328,7 @@ def getPassword(stdscr : curses.window,
                 questionToAsk : str,
                 yIndex : int) -> str | None:
     prompt = f"{questionToAsk}: "
-    # Anchored on the prompt's own (fixed-length) width, not the growing
-    # buffer, so the line doesn't recenter/shift horizontally as you type.
+    # Anchored on the prompt's fixed width, not the growing buffer, so it doesn't shift as you type.
     x = centeredX(stdscr, prompt)
     drawTextAt(stdscr,pad,yIndex,x,prompt)
     determineRefreshWindow(stdscr,pad,yIndex)

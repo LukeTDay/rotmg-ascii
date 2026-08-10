@@ -7,12 +7,9 @@ import traceback
 
 
 class Debugger:
-    """Centralized logger - the single instance every module logs through
-    (reached via ctx["DEBUGGER"], or passed explicitly to modules that don't
-    receive ctx). Every call just enqueues onto an internal queue.Queue; a
-    background daemon thread does the actual (blocking) file write, so no
-    caller ever stalls on disk I/O - same producer/consumer convention as
-    Sender/Listener."""
+    """Centralized logger (ctx["DEBUGGER"], or passed explicitly). Calls enqueue
+    onto a queue.Queue; a background thread does the blocking file write, so
+    callers never stall on disk I/O."""
 
     def __init__(self, logPath: str = "Debug/debug.txt", maxBytes: int = 2_000_000, backupCount: int = 3) -> None:
         directory = os.path.dirname(logPath)
@@ -49,9 +46,8 @@ class Debugger:
         self._enqueue(logging.ERROR, msg)
 
     def exception(self, msg: str) -> None:
-        # traceback.format_exc() only returns useful output on the thread that's
-        # still inside the except block, so it has to be captured here, not on
-        # the worker thread once the entry is actually dequeued.
+        # format_exc() only works on the thread still inside the except block -
+        # must capture here, not on the worker thread later.
         self._enqueue(logging.ERROR, f"{msg}\n{traceback.format_exc()}")
 
     def flush(self, timeout: float = 2.0) -> None:
@@ -73,8 +69,7 @@ class Debugger:
         while True:
             item = self._queue.get()
             if item is None:
-                # A flush() checkpoint, not a log entry - everything queued
-                # ahead of it is now written, so signal any waiter and keep going.
+                # flush() checkpoint: everything queued ahead is now written.
                 self._caughtUp.set()
                 continue
             level, msg = item

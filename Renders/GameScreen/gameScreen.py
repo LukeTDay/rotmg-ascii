@@ -20,10 +20,7 @@ from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMa
 
 import curses, threading, queue, time
 
-# Target render-loop cadence for _connectedLoop, once past the handshake -
-# tunable. The loop below times how long each iteration's own work (queue
-# drain/apply, draw, input) actually took and only sleeps the remainder, so
-# this is a target rate, not an on-top-of-everything-else fixed delay.
+# Target rate, not a fixed delay - the loop sleeps only the remainder after its own work.
 FRAME_INTERVAL_SECONDS = 1 / 120
 
 
@@ -146,10 +143,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                     outgoingQueue.put(showAllyShoot)
                     return None
                 elif packetType == "ACCOUNTLIST":
-                    # Sent right after login, before CREATESUCCESS - handled
-                    # here too, not just in _connectedLoop's dispatch,
-                    # otherwise this phase's narrow MAPINFO/FAILURE/
-                    # CREATESUCCESS-only filter silently drops it.
+                    # Arrives before CREATESUCCESS - must be handled here too, or this phase's filter drops it.
                     _applyAccountList(ctx, event)
         except queue.Empty:
             pass
@@ -160,19 +154,10 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
 def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: int, projectileIds,
                        ownerId: int, bulletId: int, startingPos, baseAngle: float, angleInc: float,
                        numShots: int, damage: int) -> None:
-    """Fan out `numShots` bullets starting at `baseAngle`, each subsequent one
-    offset by `angleInc` - the server sends one shoot packet per burst, not one
-    per bullet. This exact fan formula isn't documented anywhere authoritative
-    (see CLAUDE.local.md); it matches every reference implementation's field
-    naming (`angle` = first shot, `angleIncrement`/`angleInc` = per-shot step).
-
-    `projectileIds` is a list, one entry per shot index - not every shot in a
-    weapon's own fan necessarily uses the same projectile type (tiered bows
-    fire a stronger center arrow and weaker side arrows, two distinct
-    `<Projectile>` definitions on the same weapon - see
-    Utils.json.projectileMapLoader.resolveShotProjectileIds). Enemy shots
-    always pass the same single id repeated for every shot (their own
-    `bulletType` selects one specific attack for the whole burst).
+    """Fans out `numShots` bullets from `baseAngle`, each offset by `angleInc` -
+    one shoot packet covers the whole burst, not one per bullet.
+    `projectileIds` is per-shot (tiered bows fire a stronger center arrow and
+    weaker side arrows); enemy shots repeat the same id for every shot.
     """
     for i in range(max(1, numShots)):
         projectileId = projectileIds[i] if i < len(projectileIds) else projectileIds[-1]
