@@ -164,12 +164,29 @@ def handleMovementInput(pad: curses.window, ticker: Ticker, state: GameState) ->
         return  # no authoritative position yet (before the first UPDATE/GOTO)
 
     dx, dy = direction
-    nextTileX = math.floor(currentPos.x) + (1 if dx > 0 else -1 if dx < 0 else 0)
-    nextTileY = math.floor(currentPos.y) + (1 if dy > 0 else -1 if dy < 0 else 0)
-    if isTileBlocked(state, nextTileX, nextTileY):
-        return  # wall/unwalkable tile directly ahead - refuse to move into it
+    currentTileX, currentTileY = math.floor(currentPos.x), math.floor(currentPos.y)
+    stepX = 1 if dx > 0 else -1 if dx < 0 else 0
+    stepY = 1 if dy > 0 else -1 if dy < 0 else 0
+
+    # Diagonal movement is checked per axis, not as one combined corner tile,
+    # so a diagonal press that's blocked along just one axis (e.g. hugging a
+    # wall to the left while also pressing up) still moves along the other
+    # axis instead of refusing the whole move outright - sliding along the
+    # wall rather than stopping dead at it.
+    blockedX = dx != 0 and isTileBlocked(state, currentTileX + stepX, currentTileY)
+    blockedY = dy != 0 and isTileBlocked(state, currentTileX, currentTileY + stepY)
+    effectiveDx = 0.0 if blockedX else dx
+    effectiveDy = 0.0 if blockedY else dy
+
+    if effectiveDx != 0.0 and effectiveDy != 0.0 and isTileBlocked(state, currentTileX + stepX, currentTileY + stepY):
+        # Neither straight-line neighbor is blocked, but the actual diagonal
+        # corner tile is (e.g. a free-standing obstacle placed exactly at the
+        # corner) - don't let diagonal movement cut through it.
+        return
+    if effectiveDx == 0.0 and effectiveDy == 0.0:
+        return  # every axis of this move is blocked - fully stuck, not sliding anywhere
 
     ticker.setTarget(WorldPosData(
-        currentPos.x + dx * MOVE_LOOKAHEAD_TILES,
-        currentPos.y + dy * MOVE_LOOKAHEAD_TILES,
+        currentPos.x + effectiveDx * MOVE_LOOKAHEAD_TILES,
+        currentPos.y + effectiveDy * MOVE_LOOKAHEAD_TILES,
     ))
