@@ -1,4 +1,5 @@
 import math
+import random
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -11,7 +12,10 @@ from Models.ProjectileStore import Projectile, ProjectileStore
 from Utils.json.objectNameLoader import ObjectRenderInfo, groundRenderInfo, objectRenderInfo
 from Utils.XML.parseGroundTypes import groundIdToData
 
-VIEW_RADIUS_TILES = 15  # tunable: number of real world tiles rendered on each side of the player
+VIEW_RADIUS_TILES = 15  # tunable cap: the most world tiles ever rendered on each side of the player,
+                         # regardless of how much terminal space is available (see mapRenderer.computeScale -
+                         # a bigger/zoomed-out terminal shows more world up to this cap, not bigger tiles,
+                         # so this bounds the per-frame rebuild cost rather than fixing the window size)
 
 _PLACEHOLDER_PROJECTILE_CHAR = "*"
 _PLACEHOLDER_PROJECTILE_COLOR = "WHITE"
@@ -37,18 +41,34 @@ _LOCKED_FALLBACK_COLOR = "MAGENTA"
 _NOWALK_GROUND_CHAR = "#"
 _NOWALK_GROUND_COLOR = "WHITE"
 
+# Ground tiles flagged Sink (GroundTypeData.sink - RotMG's real gameplay
+# flag for "you sink into this": every water and lava type in the game XML,
+# plus a handful of similar liquid hazards like whirlpools/vats/oil slicks -
+# confirmed by cross-checking every <Sink/>-flagged ground id) render as a
+# wave glyph instead of their normal (renderMap-derived) floor glyph, so
+# liquid reads as liquid at a glance. Checked after NoWalk, not before -
+# some deep-water ids are flagged both, and "impassable" is the more
+# critical signal to preserve there than "this is liquid".
+_LIQUID_GROUND_CHAR = "~"
+_LIQUID_FALLBACK_COLOR = "CYAN"
+
 
 class Tier(Enum):
     SELF = auto()
     ENEMY = auto()
     PROJECTILE = auto()
     WALL = auto()
+    PORTAL = auto()
+    INTERACTIVE_NPC = auto()
     OTHER_PLAYER = auto()
     LOOT_BAG = auto()
 
 
 # Highest-priority tier first - the render hierarchy's exact order.
-_TIER_PRIORITY = (Tier.SELF, Tier.ENEMY, Tier.PROJECTILE, Tier.WALL, Tier.OTHER_PLAYER, Tier.LOOT_BAG)
+_TIER_PRIORITY = (
+    Tier.SELF, Tier.ENEMY, Tier.LOOT_BAG, Tier.PROJECTILE, Tier.WALL, Tier.PORTAL, Tier.INTERACTIVE_NPC,
+    Tier.OTHER_PLAYER,
+)
 
 
 @dataclass(frozen=True)
@@ -80,10 +100,11 @@ def otherPlayerRelationship(obj: GameObject, friendsList: Set[str], guildMembers
 def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[ObjectRenderInfo],
                     friendsList: Set[str], guildMembers: Set[str], lockedAccounts: Set[str]) -> Optional[Tier]:
     """Single-pass precedence matching the render hierarchy exactly: self ->
-    enemy -> wall -> other-player (friend/guild/locked only) -> loot bag ->
-    excluded. Anything that doesn't match one of these tiers (pets, quest
-    NPCs, decorative summons, unclassified objects) is deliberately excluded
-    from rendering rather than falling through to a lower tier.
+    enemy -> wall -> portal -> interactive NPC -> other-player (friend/
+    guild/locked only) -> loot bag -> excluded. Anything that doesn't match
+    one of these tiers (pets, quest NPCs, decorative summons, unclassified
+    objects) is deliberately excluded from rendering rather than falling
+    through to a lower tier.
     """
     if obj.objectId == listenerObjectId:
         return Tier.SELF
@@ -91,6 +112,10 @@ def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[Object
         return Tier.ENEMY
     if info is not None and info.blocksMovement:
         return Tier.WALL
+    if info is not None and info.isPortal:
+        return Tier.PORTAL
+    if info is not None and info.isInteractiveNpc:
+        return Tier.INTERACTIVE_NPC
     if ClassIds.idToClass(obj.objectType) is not None:
         if otherPlayerRelationship(obj, friendsList, guildMembers, lockedAccounts) is not None:
             return Tier.OTHER_PLAYER
@@ -126,19 +151,44 @@ def isTileBlocked(state: GameState, tileX: int, tileY: int) -> bool:
     return False
 
 
+def _pickChar(chars: List[str], rng: random.Random, charCache: Dict[Tuple[str, int, int, int], str],
+              category: str, tileX: int, tileY: int, entityId: int) -> str:
+    """Multi-glyph entries (e.g. a floor tile with several texture variants -
+    see renderMapOverrides.jsonEXAMPLE) pick one at random the first time a
+    given (category, tile, entity) combination is drawn, then keep returning
+    that same choice - `buildVisibleTiles` reruns every frame (see below), so
+    without caching, a fresh `rng.choice()` every frame would flicker between
+    variants instead of the tile settling on one. `charCache` is caller-owned
+    (see mapRenderer.drawFrame) so it persists across frames instead of
+    resetting; `rng` is caller-owned for the same reason, so its state
+    advances across the whole session instead of restarting every call.
+    """
+    if len(chars) == 1:
+        return chars[0]
+    key = (category, tileX, tileY, entityId)
+    choice = charCache.get(key)
+    if choice is None:
+        choice = rng.choice(chars)
+        charCache[key] = choice
+    return choice
+
+
 def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTileX: int, playerTileY: int,
                        listenerObjectId: int, friendsList: Set[str], guildMembers: Set[str],
-                       lockedAccounts: Set[str]) -> Dict[Tuple[int, int], RenderCell]:
+                       lockedAccounts: Set[str], rng: random.Random,
+                       charCache: Dict[Tuple[str, int, int, int], str],
+                       viewRadius: int = VIEW_RADIUS_TILES) -> Dict[Tuple[int, int], RenderCell]:
     """Rebuilt fresh every frame - a pure derived view over GameState/
     ProjectileStore, not an incrementally-synced structure. GameState is
     already the single incrementally-updated source of truth; a second
     mutation-tracked structure on top of it would duplicate that bookkeeping
     (e.g. moving an enemy between tile-buckets on every position update) and
-    risk drift bugs. The window is small (about (2*VIEW_RADIUS_TILES+1)^2
-    tiles), so a full rebuild every frame is cheap.
+    risk drift bugs. The window is small (`viewRadius` is capped at
+    VIEW_RADIUS_TILES by the caller - see mapRenderer.computeScale), so a
+    full rebuild every frame is cheap.
     """
-    minX, maxX = playerTileX - VIEW_RADIUS_TILES, playerTileX + VIEW_RADIUS_TILES
-    minY, maxY = playerTileY - VIEW_RADIUS_TILES, playerTileY + VIEW_RADIUS_TILES
+    minX, maxX = playerTileX - viewRadius, playerTileX + viewRadius
+    minY, maxY = playerTileY - viewRadius, playerTileY + viewRadius
 
     perTile: Dict[Tier, Dict[Tuple[int, int], List[Union[GameObject, Projectile]]]] = {
         tier: {} for tier in Tier
@@ -181,7 +231,7 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
     for tileX in range(minX, maxX + 1):
         for tileY in range(minY, maxY + 1):
             key = (tileX, tileY)
-            cell = _resolveCell(key, perTile, state, friendsList, guildMembers, lockedAccounts)
+            cell = _resolveCell(key, perTile, state, friendsList, guildMembers, lockedAccounts, rng, charCache)
             if cell is not None:
                 visible[key] = cell
     return visible
@@ -190,7 +240,8 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
 def _resolveCell(key: Tuple[int, int],
                   perTile: Dict[Tier, Dict[Tuple[int, int], List[Union[GameObject, Projectile]]]],
                   state: GameState, friendsList: Set[str], guildMembers: Set[str],
-                  lockedAccounts: Set[str]) -> Optional[RenderCell]:
+                  lockedAccounts: Set[str], rng: random.Random,
+                  charCache: Dict[Tuple[str, int, int, int], str]) -> Optional[RenderCell]:
     for tier in _TIER_PRIORITY:
         occupants = perTile[tier].get(key)
         if not occupants:
@@ -220,7 +271,8 @@ def _resolveCell(key: Tuple[int, int],
         info = objectRenderInfo(winnerObj.objectType)
         if info is None or not info.chars:
             return None
-        return RenderCell(char=info.chars[0], colorName=info.color)
+        char = _pickChar(info.chars, rng, charCache, "obj", key[0], key[1], winnerObj.objectType)
+        return RenderCell(char=char, colorName=info.color)
 
     tile = state.tiles.get(key)
     if tile is None:
@@ -229,6 +281,10 @@ def _resolveCell(key: Tuple[int, int],
     if groundType is not None and groundType.noWalk:
         return RenderCell(char=_NOWALK_GROUND_CHAR, colorName=_NOWALK_GROUND_COLOR)
     ground = groundRenderInfo(tile.type)
+    if groundType is not None and groundType.sink:
+        color = ground.color if ground is not None else _LIQUID_FALLBACK_COLOR
+        return RenderCell(char=_LIQUID_GROUND_CHAR, colorName=color)
     if ground is None or not ground.chars:
         return None
-    return RenderCell(char=ground.chars[0], colorName=ground.color)
+    char = _pickChar(ground.chars, rng, charCache, "ground", key[0], key[1], tile.type)
+    return RenderCell(char=char, colorName=ground.color)

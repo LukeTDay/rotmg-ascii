@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Dict, Set, TypeVar
+from typing import TypedDict, List, Dict, Set, Tuple, TypeVar
 
 from Models.CharListData import CharListData
 
@@ -8,6 +8,7 @@ from Networking.Sender import Sender
 from Debug.Debugger import Debugger
 
 import queue
+import random
 
 
 class AccountData(TypedDict):
@@ -34,6 +35,8 @@ class Context(TypedDict, total=False):
     INCOMINGQUEUE : queue.Queue
     OUTGOINGQUEUE : queue.Queue
     DEBUGGER : Debugger
+    RNG : random.Random
+    TILE_CHAR_CACHE : Dict[Tuple[str, int, int, int], str]
 
 
 T = TypeVar("T")

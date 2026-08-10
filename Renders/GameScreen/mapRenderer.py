@@ -1,5 +1,6 @@
 import curses
 import math
+import random
 from typing import Tuple
 
 from Constants import ColorPairs
@@ -28,24 +29,39 @@ HUD_WIDTH_COLS = BAR_WIDTH + 4
 CHAR_ASPECT_RATIO = 2.0
 
 
-def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int]:
-    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols). `scaleX`/`scaleY`
-    are how many character columns/rows each world tile is drawn as
+MIN_SCALE_Y = 1  # smallest per-tile block size - growing the view radius (more world) takes priority over this
+
+
+def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
+    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius). `scaleX`/
+    `scaleY` are how many character columns/rows each world tile is drawn as
     (nearest-neighbor block replication, scaleX ~= scaleY * CHAR_ASPECT_RATIO
-    so a world-square actually looks square on screen) - the view always
-    shows the same fixed VIEW_RADIUS_TILES window of real tiles; a bigger/
-    zoomed-in terminal just makes each tile's block bigger, it never shows
-    more world.
+    so a world-square actually looks square on screen).
+
+    A bigger/zoomed-out terminal (smaller font, so more rows/cols report as
+    available) shows more of the world first: `viewRadius` (world tiles
+    rendered on each side of the player) grows to fill the available space
+    at the smallest per-tile size, capped at VIEW_RADIUS_TILES. Only once
+    that cap is reached does any further leftover space go toward
+    magnifying each tile's block size instead - the reverse of growing
+    scale at a fixed radius, which just drew the same window bigger without
+    ever revealing more world.
     """
     maxY, maxX = stdscr.getmaxyx()
     mapAreaRows = maxY
     mapAreaCols = max(1, maxX - HUD_WIDTH_COLS)
-    windowSize = 2 * VIEW_RADIUS_TILES + 1
+
+    minScaleX = max(1, round(MIN_SCALE_Y * CHAR_ASPECT_RATIO))
+    radiusFromRows = max(0, mapAreaRows // MIN_SCALE_Y - 1) // 2
+    radiusFromCols = max(0, mapAreaCols // minScaleX - 1) // 2
+    viewRadius = max(1, min(VIEW_RADIUS_TILES, radiusFromRows, radiusFromCols))
+
+    windowSize = 2 * viewRadius + 1
     maxScaleYFromRows = mapAreaRows // windowSize
     maxScaleYFromCols = int(mapAreaCols // (windowSize * CHAR_ASPECT_RATIO))
     scaleY = max(1, min(maxScaleYFromRows, maxScaleYFromCols))
     scaleX = max(1, round(scaleY * CHAR_ASPECT_RATIO))
-    return scaleX, scaleY, mapAreaRows, mapAreaCols
+    return scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius
 
 
 def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, mapAreaCols: int,
@@ -150,11 +166,19 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     friendsList = ctx.get("FRIENDSLIST", set())
     guildMembers = ctx.get("GUILDMEMBERS", set())
     lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
-    visibleTiles = buildVisibleTiles(
-        state, projectiles, playerTileX, playerTileY, listener.objectId, friendsList, guildMembers, lockedAccounts
-    )
+    # Both owned by ctx (not recreated per-frame): `RNG`'s state keeps
+    # advancing across the whole session instead of restarting every frame,
+    # and `TILE_CHAR_CACHE` remembers each multi-glyph tile's already-picked
+    # variant so it stays put instead of re-rolling (and visibly flickering
+    # between variants) on every redraw - see TileManager._pickChar.
+    rng = ctx.setdefault("RNG", random.Random())
+    charCache = ctx.setdefault("TILE_CHAR_CACHE", {})
 
-    scaleX, scaleY, mapAreaRows, mapAreaCols = computeScale(stdscr)
+    scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius = computeScale(stdscr)
+    visibleTiles = buildVisibleTiles(
+        state, projectiles, playerTileX, playerTileY, listener.objectId, friendsList, guildMembers, lockedAccounts,
+        rng, charCache, viewRadius,
+    )
 
     pad.erase()
     _drawMap(pad, scaleX, scaleY, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY)

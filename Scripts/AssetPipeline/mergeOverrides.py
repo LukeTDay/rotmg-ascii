@@ -57,6 +57,8 @@ def mergeOverrides(derived: dict[str, dict[int, RenderInfo]], overrides: dict) -
                 "blocksMovement": info.blocksMovement,
                 "isEnemy": info.isEnemy,
                 "isLootBag": info.isLootBag,
+                "isPortal": info.isPortal,
+                "isInteractiveNpc": info.isInteractiveNpc,
             }
             for entity_id, info in derived[category].items()
         }

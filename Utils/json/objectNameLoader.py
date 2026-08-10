@@ -13,6 +13,8 @@ class ObjectRenderInfo:
     blocksMovement: bool = False
     isEnemy: bool = False
     isLootBag: bool = False
+    isPortal: bool = False
+    isInteractiveNpc: bool = False
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,8 @@ def _loadObjectInfo() -> Dict[int, ObjectRenderInfo]:
                 blocksMovement=entry.get("blocksMovement", False),
                 isEnemy=entry.get("isEnemy", False),
                 isLootBag=entry.get("isLootBag", False),
+                isPortal=entry.get("isPortal", False),
+                isInteractiveNpc=entry.get("isInteractiveNpc", False),
             )
             for idStr, entry in _loadRenderMap().get("objects", {}).items()
             if "name" in entry

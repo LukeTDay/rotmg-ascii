@@ -55,6 +55,11 @@ _PROJECTILE_CORE_TAGS = {
     "Size", "MultiHit", "ArmorPiercing", "PassesCover",
 }
 
+# <Class> values that mark a click-to-interact NPC (shopkeepers, the
+# enchanter, the vault/yard upgrader, info signs) - same per-field XML-class
+# check as isLootBag's "Container"/isPortal's "Portal".
+_INTERACTIVE_NPC_CLASSES = {"Merchant", "Enchanter", "YardUpgrader", "InteractiveInfoObject"}
+
 
 @dataclass
 class ParsedProjectile:
@@ -81,11 +86,19 @@ class ParsedEntity:
     # Only ever set for `Object` elements (Ground elements keep these defaults) -
     # used by the map renderer's hierarchy: walls block movement, Enemy marks a
     # hostile monster (vs. a pet/NPC/decorative summon, which is deliberately
-    # excluded from rendering rather than falling through to a lower tier), and
-    # Container marks the loot-bag/chest/gravestone family.
+    # excluded from rendering rather than falling through to a lower tier),
+    # Container marks the loot-bag/chest/gravestone family, Portal marks
+    # realm/dungeon/Nexus portals, and Merchant/Enchanter/YardUpgrader/
+    # InteractiveInfoObject mark click-to-interact NPCs (shopkeepers, the
+    # enchanter, the vault upgrader, info signs). HealthBarBoss is the same
+    # flag the real client uses to show the big boss health-bar UI - used
+    # here to uppercase a boss enemy's name-derived glyph.
     blocksMovement: bool = False
     isEnemy: bool = False
     isLootBag: bool = False
+    isPortal: bool = False
+    isInteractiveNpc: bool = False
+    isBoss: bool = False
 
 
 def _parseTypeAttr(raw: str) -> int | None:
@@ -198,10 +211,14 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             blocksMovement = elem.find("OccupySquare") is not None or elem.find("FullOccupy") is not None
             isEnemy = elem.find("Enemy") is not None
             classElem = elem.find("Class")
-            isLootBag = classElem is not None and classElem.text is not None and classElem.text.strip() == "Container"
+            classText = classElem.text.strip() if classElem is not None and classElem.text is not None else None
+            isLootBag = classText == "Container"
+            isPortal = classText == "Portal"
+            isInteractiveNpc = classText in _INTERACTIVE_NPC_CLASSES
+            isBoss = elem.find("HealthBarBoss") is not None
         else:
             projectiles = []
-            blocksMovement = isEnemy = isLootBag = False
+            blocksMovement = isEnemy = isLootBag = isPortal = isInteractiveNpc = isBoss = False
         entities[entityId] = ParsedEntity(
             entityId=entityId,
             name=name,
@@ -210,6 +227,9 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             blocksMovement=blocksMovement,
             isEnemy=isEnemy,
             isLootBag=isLootBag,
+            isPortal=isPortal,
+            isInteractiveNpc=isInteractiveNpc,
+            isBoss=isBoss,
         )
     return entities
 
