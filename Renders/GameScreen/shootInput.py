@@ -165,6 +165,7 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
     if moveDirection is not None:
         shootState.lastMoveDirection = moveDirection
 
+    sawMouseEvent = False
     for key in keys:
         if key in _AUTOFIRE_TOGGLE_KEYS:
             shootState.autoFire = not shootState.autoFire
@@ -172,14 +173,25 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
             # event) - worth logging, unlike the per-shot packet send below.
             debugger.info(f"Auto-fire {'enabled' if shootState.autoFire else 'disabled'}")
         elif key == curses.KEY_MOUSE:
-            try:
-                _, mouseCol, mouseRow, _, _ = curses.getmouse()
-            except curses.error:
-                mouseCol = mouseRow = None
-            if mouseCol is not None:
-                world = screenToWorld(stdscr, ticker, mouseRow, mouseCol)
-                if world is not None:
-                    shootState.lastMouseWorld = world
+            sawMouseEvent = True
+
+    if sawMouseEvent:
+        # curses.getmouse() only ever returns the single most recently
+        # dequeued mouse event, regardless of how many KEY_MOUSE entries
+        # ended up in this frame's drained batch - REPORT_MOUSE_POSITION can
+        # queue a KEY_MOUSE per pixel of cursor motion, so a fast mouse swipe
+        # used to call this (plus computeScale() inside screenToWorld) once
+        # per queued event, all but the last returning the exact same
+        # (already-stale) coordinates. Doing it once per frame instead was a
+        # real, noticeable frame-time regression fix, not just tidying.
+        try:
+            _, mouseCol, mouseRow, _, _ = curses.getmouse()
+        except curses.error:
+            mouseCol = mouseRow = None
+        if mouseCol is not None:
+            world = screenToWorld(stdscr, ticker, mouseRow, mouseCol)
+            if world is not None:
+                shootState.lastMouseWorld = world
 
     if not shootState.autoFire or ticker.pos is None:
         return
