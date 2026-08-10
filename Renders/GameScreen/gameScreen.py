@@ -24,7 +24,16 @@ import curses, threading, queue, time
 # tunable. The loop below times how long each iteration's own work (queue
 # drain/apply, draw, input) actually took and only sleeps the remainder, so
 # this is a target rate, not an on-top-of-everything-else fixed delay.
-FRAME_INTERVAL_SECONDS = 1 / 120
+#
+# Lowered from 120 to 60 (2026-08-10): actual per-frame work is ~4-7ms
+# (see the drawFrame/frame-time breakdown logging below), leaving almost no
+# headroom against the old 8.3ms/120fps budget - routine variance tripped
+# the over-budget warning constantly. Movement (Ticker) dead-reckons on its
+# own independent 60Hz clock regardless of this value, and network handling
+# doesn't depend on render cadence either, so this only affects how often
+# the screen visually redraws - not gameplay responsiveness. Also halves
+# total drawFrame/refresh/input-polling CPU load, not just the budget.
+FRAME_INTERVAL_SECONDS = 1 / 60
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
@@ -32,7 +41,16 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
     debugger.info("Entering gameScreen")
 
     stdscr.erase()
-    pad = curses.newpad(1500, 500)
+    # Unlike every other screen's 1500-row pad (sized generously for a long
+    # *scrollable* list, erased/recreated at most once per screen visit),
+    # this screen never scrolls - determineRefreshWindow is always called
+    # with yIndex=0 (see drawFrame) - and pad.erase() runs on every single
+    # frame, up to 120/sec. A 1500-row pad here was just copied from the
+    # other screens without revisiting that cost. 500 matches the column
+    # dimension's already-proven-safe generous sizing (see CLAUDE.md - a
+    # too-narrow pad has caused real addstr() crashes before) while still
+    # being a third of the original row count.
+    pad = curses.newpad(500, 500)
 
     pad.keypad(True)
     pad.clrtobot()
@@ -231,6 +249,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
 
     while True:
         frameStart = time.time()
+        queueDrainStart = frameStart
         try:
             while True:
                 event = incomingQueue.get_nowait()
@@ -273,16 +292,35 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         except queue.Empty:
             pass
         projectiles.prune()
+        queueDrainMs = (time.time() - queueDrainStart) * 1000
+
+        drawFrameStart = time.time()
         drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
+        drawFrameMs = (time.time() - drawFrameStart) * 1000
+
+        keysDrainStart = time.time()
         keys = drainKeys(pad)
+        keysDrainMs = (time.time() - keysDrainStart) * 1000
+
+        movementStart = time.time()
         moveDirection = handleMovementInput(keys, ticker, state)
+        movementMs = (time.time() - movementStart) * 1000
+
+        shootStart = time.time()
         handleShootInput(keys, stdscr, ticker, player, outgoingQueue, state, shootState, moveDirection, debugger,
                           projectileMap, projectiles)
+        shootMs = (time.time() - shootStart) * 1000
+
         elapsed = time.time() - frameStart
         remaining = FRAME_INTERVAL_SECONDS - elapsed
         if remaining < 0:
+            # Broken down by sub-step so an overrun is actionable straight
+            # from Debug/debug.txt, without needing to reach for py-spy just
+            # to find out which of these five is the actual culprit.
             debugger.warning(
-                f"Frame took {elapsed * 1000:.1f}ms, over the {FRAME_INTERVAL_SECONDS * 1000:.1f}ms budget"
+                f"Frame took {elapsed * 1000:.1f}ms, over the {FRAME_INTERVAL_SECONDS * 1000:.1f}ms budget "
+                f"(queueDrain={queueDrainMs:.1f}ms drawFrame={drawFrameMs:.1f}ms keysDrain={keysDrainMs:.1f}ms "
+                f"movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms)"
             )
         time.sleep(max(0.0, remaining))
 
