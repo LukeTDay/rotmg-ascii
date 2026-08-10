@@ -2,7 +2,7 @@ import curses
 import math
 import sys
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from Data.WorldPosData import WorldPosData
 from Models.GameState import GameState
@@ -117,18 +117,36 @@ if IS_WINDOWS:
         return dx, dy
 
 
-def handleMovementInput(pad: curses.window, ticker: Ticker, state: GameState) -> None:
-    """Drains every pending keypress this frame (not just one - same "drain
-    completely" convention used for the incoming network queue). On Windows,
-    the actual movement direction comes from _pollHeldDirection (real
-    physical key state, see above) instead of the drained keys themselves -
-    the drain still has to happen every frame regardless, just to keep the
-    terminal's own input buffer from backing up. Elsewhere, the last
-    directional key seen in the drain is used directly, cardinal-only (4-way):
-    a raw terminal can't reliably report multiple simultaneous key-down
-    states for true diagonal input, only discrete keypress events, and
-    RotMG's real free-angle precision isn't meaningful at 1-tile-per-cell
-    ASCII resolution anyway.
+def drainKeys(pad: curses.window) -> List[int]:
+    """Drains every pending keypress/input event this frame into a list (not
+    just one - same "drain completely" convention used for the incoming
+    network queue), so the terminal's own input buffer never backs up.
+
+    Pulled out as its own function so a single frame's drain can be shared
+    between handleMovementInput and shootInput.handleShootInput - each
+    previously called pad.getch() in its own loop, which meant whichever ran
+    first (handleMovementInput) silently ate every key before the other ever
+    saw one, since curses' input buffer only yields each keystroke once.
+    """
+    keys: List[int] = []
+    key = pad.getch()
+    while key != -1:
+        if IS_WINDOWS:
+            _noteKeyEventSeen()
+        keys.append(key)
+        key = pad.getch()
+    return keys
+
+
+def handleMovementInput(keys: List[int], ticker: Ticker, state: GameState) -> Optional[Tuple[float, float]]:
+    """On Windows, the actual movement direction comes from
+    _pollHeldDirection (real physical key state, see above) instead of the
+    drained keys themselves - `keys` is only consulted here on non-Windows.
+    There, the last directional key seen in `keys` is used directly,
+    cardinal-only (4-way): a raw terminal can't reliably report multiple
+    simultaneous key-down states for true diagonal input, only discrete
+    keypress events, and RotMG's real free-angle precision isn't meaningful
+    at 1-tile-per-cell ASCII resolution anyway.
 
     Either way this nudges the Ticker's movement target one tile further in
     the resulting direction from wherever it currently tracks the player as
@@ -144,24 +162,24 @@ def handleMovementInput(pad: curses.window, ticker: Ticker, state: GameState) ->
     Windows, _pollHeldDirection reflects real-time key state, so releasing a
     key stops movement within its short trust window (see above) instead of
     waiting for the last commanded tile to finish.
+
+    Returns the direction actually resolved this frame (or None) so callers
+    (gameScreen.py's shoot-aim fallback) can track the player's last-moved
+    facing without re-deriving it themselves.
     """
     direction: Optional[Tuple[float, float]] = None
-    key = pad.getch()
-    while key != -1:
-        if IS_WINDOWS:
-            _noteKeyEventSeen()
+    for key in keys:
         if key in _DIRECTIONS:
             direction = _DIRECTIONS[key]
-        key = pad.getch()
 
     if IS_WINDOWS:
         direction = _pollHeldDirection()
 
     if direction is None:
-        return
+        return None
     currentPos = ticker.pos
     if currentPos is None:
-        return  # no authoritative position yet (before the first UPDATE/GOTO)
+        return None  # no authoritative position yet (before the first UPDATE/GOTO)
 
     dx, dy = direction
     currentTileX, currentTileY = math.floor(currentPos.x), math.floor(currentPos.y)
@@ -182,11 +200,12 @@ def handleMovementInput(pad: curses.window, ticker: Ticker, state: GameState) ->
         # Neither straight-line neighbor is blocked, but the actual diagonal
         # corner tile is (e.g. a free-standing obstacle placed exactly at the
         # corner) - don't let diagonal movement cut through it.
-        return
+        return None
     if effectiveDx == 0.0 and effectiveDy == 0.0:
-        return  # every axis of this move is blocked - fully stuck, not sliding anywhere
+        return None  # every axis of this move is blocked - fully stuck, not sliding anywhere
 
     ticker.setTarget(WorldPosData(
         currentPos.x + effectiveDx * MOVE_LOOKAHEAD_TILES,
         currentPos.y + effectiveDy * MOVE_LOOKAHEAD_TILES,
     ))
+    return direction

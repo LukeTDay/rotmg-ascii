@@ -1,7 +1,7 @@
 import curses
 import math
 import random
-from typing import Tuple
+from typing import Optional, Tuple
 
 from Constants import ColorPairs
 from Models.Context import Context
@@ -62,6 +62,22 @@ def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
     scaleY = max(1, min(maxScaleYFromRows, maxScaleYFromCols))
     scaleX = max(1, round(scaleY * CHAR_ASPECT_RATIO))
     return scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius
+
+
+def screenToWorld(stdscr: curses.window, ticker: Ticker, screenRow: int, screenCol: int) -> Optional[Tuple[float, float]]:
+    """Inverse of _drawMap's tile placement: converts a mouse event's screen
+    row/col (curses.getmouse()'s y/x - the game pad has no scroll offset, see
+    CLAUDE.local.md) into a world (x, y) position. Returns None if the
+    position falls outside the map area (e.g. it's over the HUD instead)."""
+    if ticker.pos is None:
+        return None
+    scaleX, scaleY, mapAreaRows, mapAreaCols, _ = computeScale(stdscr)
+    if not (0 <= screenRow < mapAreaRows and 0 <= screenCol < mapAreaCols):
+        return None
+    playerTileX, playerTileY = math.floor(ticker.pos.x), math.floor(ticker.pos.y)
+    worldX = playerTileX + (screenCol - mapAreaCols // 2) / scaleX
+    worldY = playerTileY + (screenRow - mapAreaRows // 2) / scaleY
+    return worldX, worldY
 
 
 def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, mapAreaCols: int,

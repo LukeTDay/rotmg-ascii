@@ -17,8 +17,8 @@ VIEW_RADIUS_TILES = 15  # tunable cap: the most world tiles ever rendered on eac
                          # a bigger/zoomed-out terminal shows more world up to this cap, not bigger tiles,
                          # so this bounds the per-frame rebuild cost rather than fixing the window size)
 
-_PLACEHOLDER_PROJECTILE_CHAR = "*"
-_PLACEHOLDER_PROJECTILE_COLOR = "WHITE"
+_PROJECTILE_CHAR = "+"
+_PROJECTILE_FALLBACK_COLOR = "WHITE"
 
 _SELF_CHAR = "@"
 _SELF_FALLBACK_COLOR = "WHITE"
@@ -247,12 +247,17 @@ def _resolveCell(key: Tuple[int, int],
         if not occupants:
             continue
         if tier == Tier.PROJECTILE:
-            # Highest-damage projectile currently over this tile wins - no
-            # renderMap entry exists for bullets today, so a fixed
-            # placeholder glyph/color stands in until per-projectile visuals
-            # are added to the asset pipeline.
-            max(occupants, key=lambda p: p.damage)
-            return RenderCell(char=_PLACEHOLDER_PROJECTILE_CHAR, colorName=_PLACEHOLDER_PROJECTILE_COLOR)
+            # Highest-damage projectile currently over this tile wins. Glyph
+            # is always the fixed '+' (there's no per-projectile-shape data
+            # to draw from at ASCII resolution anyway), but color comes from
+            # the projectile's own renderMap.json entry when its visual
+            # identity resolved (see ProjectileDefinition.visualObjectType) -
+            # falling back to a fixed color only if it didn't (e.g. a
+            # projectile whose name never resolved to a rendered <Object>).
+            winner = max(occupants, key=lambda p: p.damage)
+            info = objectRenderInfo(winner.visualObjectType) if winner.visualObjectType is not None else None
+            color = info.color if info is not None else _PROJECTILE_FALLBACK_COLOR
+            return RenderCell(char=_PROJECTILE_CHAR, colorName=color)
         winnerObj = occupants[0]
         if tier == Tier.SELF:
             # Always a fixed '@' regardless of class sprite - the player is

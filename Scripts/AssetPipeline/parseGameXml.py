@@ -75,6 +75,18 @@ class ParsedProjectile:
     armorPiercing: bool = False
     passesCover: bool = False
     extras: dict[str, str] = field(default_factory=dict)  # raw text of any other child tag, by tag name
+    # Attack-cadence/fan-out attributes - these belong to the owning weapon's
+    # <Object> element, not to this specific <Projectile> block (confirmed
+    # against real weapon XML and RealmEye's "Weapon Attributes" wiki page),
+    # but are duplicated onto every ParsedProjectile of that owner here so a
+    # single getProjectileDefinition(map, weaponId, 0) lookup already used
+    # for rendering can also serve outgoing-shot construction without a
+    # second lookup file. rateOfFire is the same fraction as the in-game %
+    # (100% = normal tiered speed); numProjectiles/arcGapDegrees default to
+    # 1/11.25 per RealmEye when a weapon's XML doesn't define them.
+    rateOfFire: float = 1.0
+    numProjectiles: int = 1
+    arcGapDegrees: float = 11.25
 
 
 @dataclass
@@ -147,7 +159,25 @@ def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
     an enemy). `id` selects which of an owner's projectiles a live
     SERVERPLAYERSHOOT/ENEMYSHOOT packet is referring to; missing `id` defaults
     to 0, the common case for single-projectile weapons.
+
+    RateOfFire/NumProjectiles/ArcGap are attributes of the owning <Object>
+    itself, not of any individual <Projectile> child (confirmed against real
+    weapon XML - see CLAUDE.local.md's MITM findings), so they're read once
+    from `elem` here and duplicated onto every ParsedProjectile this owner
+    produces. Per RealmEye's "Weapon Attributes" wiki: RateOfFire defaults to
+    1.0 (100%, normal tiered speed) and NumProjectiles to 1 when undefined;
+    ArcGap defaults to 11.25 degrees specifically when undefined (not 0 -
+    an explicit ArcGap of 0 is a real, different value meaning "no spread").
     """
+    rateOfFire = _parseNumber(elem.findtext("RateOfFire"))
+    rateOfFire = rateOfFire if rateOfFire is not None else 1.0
+
+    numProjectilesRaw = _parseNumber(elem.findtext("NumProjectiles"))
+    numProjectiles = int(numProjectilesRaw) if numProjectilesRaw is not None else 1
+
+    arcGapDegrees = _parseNumber(elem.findtext("ArcGap"))
+    arcGapDegrees = arcGapDegrees if arcGapDegrees is not None else 11.25
+
     projectiles: list[ParsedProjectile] = []
     for projElem in elem.findall("Projectile"):
         objectIdElem = projElem.find("ObjectId")
@@ -155,6 +185,14 @@ def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
         lifetime = _parseNumber(projElem.findtext("LifetimeMS"))
         if objectIdElem is None or not objectIdElem.text or speed is None or lifetime is None:
             continue  # can't simulate flight without these - skip this projectile
+        # Raw XML <Speed> is 10x true tiles/second - confirmed by cross-
+        # checking two of RealmEye's own cited example values against this
+        # project's raw extracted XML: Tezcacoatl's Tail (documented 22.5
+        # t/s) is stored as 225.0, Lumiaire (documented 5 t/s) as 50.0 -
+        # exactly 10x in both cases. Divided here so every ParsedProjectile.
+        # speed downstream (ProjectileDefinition, Projectile.posAt) is
+        # already real tiles/second, matching what its name claims.
+        speed /= 10.0
 
         try:
             projId = int(projElem.get("id", "0"))
@@ -185,6 +223,9 @@ def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
             armorPiercing=projElem.find("ArmorPiercing") is not None,
             passesCover=projElem.find("PassesCover") is not None,
             extras=extras,
+            rateOfFire=rateOfFire,
+            numProjectiles=numProjectiles,
+            arcGapDegrees=arcGapDegrees,
         ))
     return projectiles
 

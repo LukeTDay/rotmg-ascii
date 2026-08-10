@@ -33,8 +33,19 @@ class Sender:
 
     def _sendPacket(self, packet):
         self.writer.reset()
-        packet.write(self.writer)
-        self.writer.writeHeader(PacketIds.typeToId[packet.type])
+        try:
+            packet.write(self.writer)
+            self.writer.writeHeader(PacketIds.typeToId[packet.type])
+        except Exception as e:
+            # A malformed field (e.g. a value out of range for its wire
+            # type) would otherwise raise out of write()/writeHeader() and
+            # kill this whole thread silently - after which no more acks
+            # ever go out and the server eventually kicks the client for
+            # lagging, which is a confusing way to discover a packet-
+            # construction bug. Drop just this packet and keep the thread
+            # (and the rest of the connection) alive instead.
+            self.debugger.warning(f"Dropped outgoing {packet.type} packet - failed to encode: {e}")
+            return
         self.writer.buffer[5:] = self.encoder.process(self.writer.buffer[5:])
         try:
             self.sock.sendall(bytes(self.writer.buffer))

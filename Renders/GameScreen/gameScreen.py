@@ -13,9 +13,10 @@ from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.GameScreen.mapRenderer import drawFrame
-from Renders.GameScreen.movementInput import handleMovementInput
+from Renders.GameScreen.movementInput import drainKeys, handleMovementInput
+from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
 
-from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader
+from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds
 
 import curses, threading, queue, time
 
@@ -156,7 +157,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
         time.sleep(0.25)
 
 
-def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: int, projectileId: int,
+def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: int, projectileIds,
                        ownerId: int, bulletId: int, startingPos, baseAngle: float, angleInc: float,
                        numShots: int, damage: int) -> None:
     """Fan out `numShots` bullets starting at `baseAngle`, each subsequent one
@@ -164,11 +165,20 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
     per bullet. This exact fan formula isn't documented anywhere authoritative
     (see CLAUDE.local.md); it matches every reference implementation's field
     naming (`angle` = first shot, `angleIncrement`/`angleInc` = per-shot step).
+
+    `projectileIds` is a list, one entry per shot index - not every shot in a
+    weapon's own fan necessarily uses the same projectile type (tiered bows
+    fire a stronger center arrow and weaker side arrows, two distinct
+    `<Projectile>` definitions on the same weapon - see
+    Utils.json.projectileMapLoader.resolveShotProjectileIds). Enemy shots
+    always pass the same single id repeated for every shot (their own
+    `bulletType` selects one specific attack for the whole burst).
     """
-    definition = getProjectileDefinition(projectileMap, ownerObjectType, projectileId)
-    if definition is None:
-        return
     for i in range(max(1, numShots)):
+        projectileId = projectileIds[i] if i < len(projectileIds) else projectileIds[-1]
+        definition = getProjectileDefinition(projectileMap, ownerObjectType, projectileId)
+        if definition is None:
+            continue
         store.spawn(
             bulletId=bulletId,
             ownerId=ownerId,
@@ -179,6 +189,7 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
             lifetimeMS=definition.lifetimeMS,
             size=definition.size,
             shotIndex=i,
+            visualObjectType=definition.visualObjectType,
         )
 
 
@@ -209,12 +220,14 @@ def _applyAccountList(ctx: Context, event) -> None:
 def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen:
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     incomingQueue = required(ctx.get("INCOMINGQUEUE"), "INCOMINGQUEUE")
+    outgoingQueue = required(ctx.get("OUTGOINGQUEUE"), "OUTGOINGQUEUE")
     listener = required(ctx.get("LISTENER"), "LISTENER")
     ticker = required(ctx.get("TICKER"), "TICKER")
     state = GameState()
     player = PlayerData()
     projectiles = ProjectileStore()
     projectileMap = projectileMapLoader()
+    shootState = AutoFireState()
 
     while True:
         frameStart = time.time()
@@ -239,18 +252,21 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             player.parseStats(status.stats)
                             ticker.setSpeed(computeSpeed(player.spd, player.spdBoost, player.condition))
                 elif event.type == "SERVERPLAYERSHOOT":
+                    numShots = max(1, event.bulletCount)
                     _spawnProjectiles(
-                        projectiles, projectileMap, event.containerType, 0,
+                        projectiles, projectileMap, event.containerType,
+                        resolveShotProjectileIds(projectileMap, event.containerType, numShots),
                         event.ownerId, event.bulletId, event.startingPos,
-                        event.angle, event.bulletAngle, event.bulletCount, event.damage,
+                        event.angle, event.bulletAngle, numShots, event.damage,
                     )
                 elif event.type == "ENEMYSHOOT":
                     owner = state.objects.get(event.ownerId)
                     if owner is not None:
+                        numShots = max(1, event.numShots)
                         _spawnProjectiles(
-                            projectiles, projectileMap, owner.objectType, event.bulletType,
+                            projectiles, projectileMap, owner.objectType, [event.bulletType] * numShots,
                             event.ownerId, event.bulletId, event.startingPos,
-                            event.angle, event.angleInc, event.numShots, event.damage,
+                            event.angle, event.angleInc, numShots, event.damage,
                         )
                 elif event.type == "ACCOUNTLIST":
                     _applyAccountList(ctx, event)
@@ -258,7 +274,10 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             pass
         projectiles.prune()
         drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
-        handleMovementInput(pad, ticker, state)
+        keys = drainKeys(pad)
+        moveDirection = handleMovementInput(keys, ticker, state)
+        handleShootInput(keys, stdscr, ticker, player, outgoingQueue, state, shootState, moveDirection, debugger,
+                          projectileMap, projectiles)
         elapsed = time.time() - frameStart
         remaining = FRAME_INTERVAL_SECONDS - elapsed
         if remaining < 0:

@@ -25,7 +25,7 @@ from Scripts.AssetPipeline.parseGameXml import ParsedProjectile
 PROJECTILE_MAP_PATH = Path(__file__).resolve().parents[2] / "Resources" / "projectileMap.json"
 
 
-def _projectileToDict(proj: ParsedProjectile) -> dict:
+def _projectileToDict(proj: ParsedProjectile, nameToId: dict) -> dict:
     return {
         "objectId": proj.objectId,
         "speed": proj.speed,
@@ -38,16 +38,30 @@ def _projectileToDict(proj: ParsedProjectile) -> dict:
         "armorPiercing": proj.armorPiercing,
         "passesCover": proj.passesCover,
         "extras": proj.extras,
+        "rateOfFire": proj.rateOfFire,
+        "numProjectiles": proj.numProjectiles,
+        "arcGapDegrees": proj.arcGapDegrees,
+        # A projectile's own visual identity (e.g. "Cultist Fire Shot") is a
+        # *separate* <Object> element (in practice always in projectiles.xml,
+        # since that's the manifest.json file that defines them) from the
+        # weapon/enemy <Object> that fires it - resolved here by matching
+        # ParsedProjectile.objectId (a display name, not a numeric id)
+        # against every parsed entity's name, so the map renderer can look up
+        # this projectile's real color via the exact same renderMap.json/
+        # objectRenderInfo() path already used for every other on-map object,
+        # rather than needing a second color-derivation pipeline.
+        "visualObjectType": nameToId.get(proj.objectId),
     }
 
 
 def buildProjectileMap(parsed_objects: dict) -> dict:
     """`parsed_objects` is `parseAll()["objects"]` - {entityId: ParsedEntity}."""
+    nameToId = {entity.name: entityId for entityId, entity in parsed_objects.items()}
     result: dict[str, dict[str, dict]] = {}
     for entityId, entity in parsed_objects.items():
         if not entity.projectiles:
             continue
-        result[str(entityId)] = {str(proj.id): _projectileToDict(proj) for proj in entity.projectiles}
+        result[str(entityId)] = {str(proj.id): _projectileToDict(proj, nameToId) for proj in entity.projectiles}
     return result
 
 

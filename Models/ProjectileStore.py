@@ -7,7 +7,8 @@ from Data.WorldPosData import WorldPosData
 
 class Projectile:
     def __init__(self, bulletId: int, ownerId: int, shotIndex: int, startingPos: WorldPosData, angle: float,
-                 speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None):
+                 speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None,
+                 visualObjectType: Optional[int] = None):
         self.bulletId = bulletId
         self.ownerId = ownerId
         self.shotIndex = shotIndex
@@ -17,6 +18,11 @@ class Projectile:
         self.damage = damage
         self.lifetimeMS = lifetimeMS
         self.size = size
+        # The projectile's own renderMap.json objectType (a separate <Object>
+        # from the weapon/enemy that fired it, e.g. "Cultist Fire Shot") -
+        # None if ProjectileDefinition couldn't resolve one, in which case
+        # the map renderer falls back to a fixed color.
+        self.visualObjectType = visualObjectType
         self.spawnTime = time.time()
 
     def isExpired(self, now: Optional[float] = None) -> bool:
@@ -61,16 +67,29 @@ class ProjectileStore:
         self.projectiles: Dict[Tuple[int, int, int], Projectile] = {}
 
     def spawn(self, bulletId: int, ownerId: int, startingPos: WorldPosData, angle: float,
-              speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None, shotIndex: int = 0) -> None:
+              speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None, shotIndex: int = 0,
+              visualObjectType: Optional[int] = None) -> None:
         key = (ownerId, bulletId, shotIndex)
         self.projectiles[key] = Projectile(
-            bulletId, ownerId, shotIndex, startingPos, angle, speed, damage, lifetimeMS, size
+            bulletId, ownerId, shotIndex, startingPos, angle, speed, damage, lifetimeMS, size, visualObjectType
         )
 
     def remove(self, ownerId: int, bulletId: int, shotIndex: int = 0) -> None:
         self.projectiles.pop((ownerId, bulletId, shotIndex), None)
 
     def prune(self, now: Optional[float] = None) -> None:
+        # TODO: no client-side hit detection exists yet - a projectile is
+        # only ever removed here for expiring, never for actually colliding
+        # with something. RotMG's real hit resolution is client-driven: the
+        # client that owns a projectile is responsible for noticing it
+        # overlaps an enemy/player and sending a hit-report packet
+        # (ENEMYHIT/PLAYERHIT/OTHERHIT - the server doesn't do this itself),
+        # which is also how it gets removed early instead of just expiring.
+        # Implementing this needs GameState threaded in here (or into a new
+        # caller-side check next to gameScreen.py's existing prune() call)
+        # to test each projectile's posAt(now) against nearby enemy
+        # positions, using this key's ownerId/bulletId/shotIndex to build the
+        # hit packet - see this class's own docstring above.
         now = time.time() if now is None else now
         expired = [key for key, proj in self.projectiles.items() if proj.isExpired(now)]
         for key in expired:

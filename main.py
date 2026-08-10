@@ -21,6 +21,8 @@ import curses, sys, traceback
 def main(stdscr : curses.window, debugger : Debugger):
     debugger.info("App started")
     curses.curs_set(0) # Makes the cursor disappear
+    curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+    curses.mouseinterval(0)
     curses.start_color()
     curses.init_pair(ColorPairs.DEFAULT, curses.COLOR_WHITE, curses.COLOR_BLACK)
     curses.init_pair(ColorPairs.FAME, curses.COLOR_YELLOW, curses.COLOR_BLACK)
