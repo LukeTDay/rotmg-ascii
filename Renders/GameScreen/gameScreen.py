@@ -12,6 +12,7 @@ import Networking.PacketHelper as PacketHelper
 from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
+from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, handleMovementInput
 from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
@@ -57,6 +58,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
     while connectThread.is_alive():
         pad.move(0, 0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         y = drawCenteredBanner(stdscr, pad, 0, "Connecting")
         y = drawCenteredText(stdscr, pad, y + 1, f"to server{''.join(buf)}")
         determineRefreshWindow(stdscr, pad, y)
@@ -114,6 +116,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
     while True:
         pad.move(0, 0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         y = drawCenteredBanner(stdscr, pad, 0, "Connecting")
         y = drawCenteredText(stdscr, pad, y + 1, f"to {mapName}..." if mapName else "...")
         determineRefreshWindow(stdscr, pad, y)

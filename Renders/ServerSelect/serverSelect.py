@@ -4,6 +4,7 @@ import curses
 from typing import Dict, List
 
 from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawTextAt, figletLineCount
+from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
 
 ROWS_PER_SLOT = 2  # 1 text row + 1 blank spacer row
@@ -48,6 +49,7 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
     while True:
         pad.move(0, 0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
 
         height, width = stdscr.getmaxyx()
         visibleRows = max(1, (height - headerHeight) // ROWS_PER_SLOT)

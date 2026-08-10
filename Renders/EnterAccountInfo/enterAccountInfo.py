@@ -1,6 +1,7 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from authentication.getAccessAndClientToken import getAccessAndClientToken
+from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, AccountData, required
 
 import curses, json, time, os, tempfile, threading, queue, pyfiglet
@@ -20,6 +21,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     pad = curses.newpad(100,500)
     pad.keypad(True)
     pad.clrtobot()
+    drawBackgroundTexture(stdscr, pad, ctx)
 
     yIndex = 0
 
@@ -47,12 +49,14 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         yIndex = currYIndex
         pad.move(yIndex,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         determineRefreshWindow(stdscr=stdscr,
                                pad=pad,
                                yIndex=yIndex)
 
         email = getEmail(stdscr=stdscr,
                         pad=pad,
+                        ctx=ctx,
                         yIndex=yIndex,
                         )
         if email == None and canSelect:
@@ -75,10 +79,12 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         yIndex = currYIndex
         pad.move(yIndex,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         determineRefreshWindow(stdscr,pad,yIndex)
 
         pass1 = getPassword(stdscr,
                             pad=pad,
+                            ctx=ctx,
                             questionToAsk="Please enter your password",
                             yIndex=yIndex)
         if pass1 is None and canSelect:
@@ -86,6 +92,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         yIndex += 2
         pass2 = getPassword(stdscr,
                             pad=pad,
+                            ctx=ctx,
                             questionToAsk="Confirm your password     ",
                             yIndex=yIndex)
         if pass2 is None and canSelect:
@@ -135,6 +142,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     while thread.is_alive():
         pad.move(yIndex,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         drawTextAt(stdscr,pad,yIndex,verifyingTextX,f"Verifying ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
@@ -184,10 +192,12 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         yIndex = currYIndex
         pad.move(yIndex,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
 
         alias = getAlias(
             stdscr=stdscr,
             pad=pad,
+            ctx=ctx,
             yIndex=yIndex,
         )
         if alias == "":
@@ -325,6 +335,7 @@ def drawCenteredBanner(stdscr : curses.window,
 
 def getPassword(stdscr : curses.window,
                 pad : curses.window,
+                ctx : Context,
                 questionToAsk : str,
                 yIndex : int) -> str | None:
     prompt = f"{questionToAsk}: "
@@ -348,6 +359,7 @@ def getPassword(stdscr : curses.window,
 
         pad.move(yIndex, x)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         drawTextAt(stdscr,pad,yIndex,x,f"{prompt}{'*' * len(buf)} ")
         determineRefreshWindow(stdscr,pad,yIndex)
 
@@ -356,6 +368,7 @@ def getPassword(stdscr : curses.window,
 
 def getEmail(stdscr : curses.window,
                 pad : curses.window,
+                ctx : Context,
                 yIndex : int) -> str | None:
     prompt = "Please enter your email: "
     x = centeredX(stdscr, prompt)
@@ -376,12 +389,14 @@ def getEmail(stdscr : curses.window,
             buf.append(chr(ch))
         pad.move(yIndex, x)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         drawTextAt(stdscr,pad,yIndex,x, f"{prompt}{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
     return ''.join(buf)
 
 def getAlias(stdscr : curses.window,
                 pad : curses.window,
+                ctx : Context,
                 yIndex : int) -> str | None:
     prompt = "Please enter the alias of this account: "
     x = centeredX(stdscr, prompt)
@@ -401,6 +416,8 @@ def getAlias(stdscr : curses.window,
         else:
             buf.append(chr(ch))
         pad.move(yIndex, x)
+        pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         pad.clrtobot()
         drawTextAt(stdscr,pad,yIndex,x, f"{prompt}{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)

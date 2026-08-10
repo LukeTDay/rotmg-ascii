@@ -1,6 +1,7 @@
 from Constants.Screen import Screen
 from Utils.json.accCredLoader import credential_loader
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText, figletLineCount
+from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
 
 import curses, json
@@ -47,6 +48,7 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
     while True:
         pad.move(0,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
 
         height,width = stdscr.getmaxyx()
         entryCount = len(storedAccounts) + 1  # + "Enter New Account Information"

@@ -4,6 +4,7 @@ import curses
 from typing import List
 
 from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, figletLineCount
+from Renders.backgroundTexture import drawBackgroundTexture
 from Models.CharListData import CharListData
 from Models.Context import Context, required
 from Constants.ClassIds import *
@@ -38,6 +39,7 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
     while True:
         pad.move(0,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
 
         height,width = stdscr.getmaxyx()
         visibleRows = max(1, (height - headerHeight) // ROWS_PER_SLOT)

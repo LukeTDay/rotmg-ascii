@@ -7,6 +7,7 @@ from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
 from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, verifyWorker
+from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
 
 import curses, threading, queue, time, requests,os
@@ -38,6 +39,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     while tokenThread.is_alive():
         pad.move(0,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         yIndex = drawCenteredBanner(stdscr, pad, 0, "Verifying")
         yIndex = drawTextAt(stdscr, pad, yIndex + 1, verifyingTextX, f"ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
@@ -74,6 +76,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     debugger.info("Account token verified")
     pad.move(0,0)
     pad.clrtobot()
+    drawBackgroundTexture(stdscr, pad, ctx)
     yIndex = drawCenteredBanner(stdscr, pad, 0, "Verified")
     determineRefreshWindow(stdscr,pad,yIndex)
 

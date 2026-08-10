@@ -37,6 +37,9 @@ class Context(TypedDict, total=False):
     DEBUGGER : Debugger
     RNG : random.Random
     TILE_CHAR_CACHE : Dict[Tuple[str, int, int, int], str]
+    BACKGROUND_TEXTURE_CACHE : List[Tuple[int, int, str, int]]
+    BACKGROUND_TEXTURE_DIMS : Tuple[int, int]
+    BACKGROUND_TEXTURE_LAST_REGEN : float
 
 
 T = TypeVar("T")
