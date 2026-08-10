@@ -1,42 +1,21 @@
 """
-Derives the final per-entity render info (display name, ASCII glyph(s),
-curses color name) from the identity + sprite data `parseGameXml.py` and
-`spriteIndex.py` produce.
+Derives final render info (name, glyph(s), curses color) from parseGameXml.py
++ spriteIndex.py's identity/sprite data.
 
-Color starts from each `Sprite`'s game-computed `mostCommonColor` (found
-while building `spriteIndex.py`) rather than pixel-sampling/cropping (the
-plan's original approach) - but "most common pixel" turned out to pick the
-sprite's black outline on ~46% of entities (confirmed against a real
-install: a small pixel-art icon usually has more outline pixels than fill
-pixels), which would render as invisible text on a typical black terminal
-background. So whenever that thresholds to BLACK, this falls back to
-actually cropping the sprite and searching its real pixels - starting at
-the center and moving outward in expanding rings, since the center of an
-icon is where its "identity" color lives and the outline is at the edges -
-for the first non-outline (non-near-black), non-transparent pixel. If the
-whole sprite is genuinely dark/grey (no such pixel exists), it falls back
-to WHITE - curses' 8-color palette has no true grey, and WHITE is the
-closest still-visible-on-black substitute.
+Color starts from each Sprite's `mostCommonColor`, which picks the sprite's
+black outline ~46% of the time (confirmed against a real install) - when
+that thresholds to BLACK, falls back to searching real pixels outward from
+center for the first non-outline, non-transparent color, then to WHITE if
+the whole sprite is genuinely dark/grey.
 
-The RGB-cube-corner threshold mapping itself is exact, not a
-nearest-neighbor search: curses/ANSI's 8 base colors are literally the 8
-corners of the RGB cube (`Constants/ColorPairs.py`'s design notes confirm
-`curses.COLOR_RED`..`curses.COLOR_WHITE` are the integers 1-7 on this
-project's target platforms), so thresholding each channel at its midpoint
-and combining the bits *is* the nearest corner - R=bit0, G=bit1, B=bit2,
-matching curses'/ANSI's own color numbering (1=RED, 2=GREEN, 4=BLUE,
-3=YELLOW=R+G, 5=MAGENTA=R+B, 6=CYAN=G+B, 7=WHITE=R+G+B, 0=BLACK).
+RGB-cube-corner threshold is exact (not nearest-neighbor): curses' 8 colors
+are literally the cube's 8 corners.
 
-`chars` is a list per the project's design (a renderer can vary the glyph
-per-instance for texture, e.g. a floor rendering as `.` sometimes and `,`
-other times - see `Models/TileManager.py`'s `_pickChar`) - auto-derivation
-here always produces a single-element list from a simple per-category
-default glyph; assigning a curated multi-glyph list to a specific id
-(floors, loot bags, etc.) is Phase 4's override file's job, not something
-guessed here from pixel data. (A ground entity's `<RandomTexture>` variants
-resolve to multiple sprite rects here, but only the first is used for
-color - auto-generating a matching multi-glyph list from that was tried and
-reverted, it read as too visually noisy across a whole floor.)
+`chars` is always a list so a hand override can assign multiple glyphs for
+per-tile variety (see `Models/TileManager.py`'s `_pickChar`) - auto-derivation
+here only ever produces one. Auto-generating multi-glyph variety from a
+ground entity's `<RandomTexture>` variants was tried and reverted (too
+visually noisy across a whole floor).
 """
 
 import re
@@ -62,19 +41,16 @@ PORTAL_CHAR = "^"
 INTERACTIVE_NPC_CHAR = "?"
 LOOT_BAG_CHAR = "$"
 
-# Below this brightness (0-1, max channel), a pixel is treated as outline/
-# shadow rather than the sprite's "identity" color, during the center-out
-# pixel search fallback.
+# Below this brightness (max channel), a pixel counts as outline/shadow,
+# not identity color, during the center-out fallback search.
 NEAR_BLACK_THRESHOLD = 0.15
 
 VISIBLE_FALLBACK_COLOR = "WHITE"
 
-# Loot bag sprites use colors the generic RGB-cube-corner quantizer
-# (nearestCursesColor) handles badly: there's no true BROWN corner (a brown
-# bag rounds to RED), and pure-magenta rounding loses indigo/purple bags
-# entirely. Classified instead by nearest match against reference colors
-# sampled directly from the real bag sprites - curses has no brown, so
-# brown bags use YELLOW, the standard 8-color-terminal/roguelike stand-in.
+# nearestCursesColor handles bag colors badly (no true BROWN corner, indigo/
+# purple bags collapse into magenta) - classified instead against reference
+# colors sampled from real bag sprites. Brown bags use YELLOW (curses has no
+# brown; standard roguelike stand-in).
 _BAG_COLOR_REFERENCES = {
     "YELLOW": (0.68, 0.42, 0.18),   # brown/tan bags
     "MAGENTA": (0.65, 0.07, 0.75),  # purple bags (pink-magenta and indigo variants both land here)
@@ -192,39 +168,27 @@ def deriveRenderInfo(
     rect = rects[0]
     r, g, b, _a = rect.color
 
-    # Both branches below are ordered to match the map renderer's own tier
-    # priority (Models/TileManager.py's _TIER_PRIORITY: self > enemy > loot
-    # bag > wall > portal > interactive NPC > other player) - a handful of
-    # entities are flagged as more than one of these (e.g. a "DPS Guill"
-    # training-dummy object is both Enemy and Merchant-class), and whichever
-    # branch is checked first here has to be the one that actually wins the
-    # tile at render time, or the glyph baked in here won't match what
-    # `classifyObject` renders it as.
+    # Branch order must match TileManager._TIER_PRIORITY (enemy > loot bag >
+    # wall > portal > NPC) - some entities are flagged as more than one
+    # (e.g. "DPS Guill" is both Enemy and Merchant), and whichever check
+    # wins here must match what classifyObject renders at runtime.
     if entity.isEnemy:
-        # A letter from the monster's own name reads at a glance far better
-        # than a generic '*' once there are hundreds of enemy types on
-        # screen - lowercase by default, uppercase for HealthBarBoss-flagged
-        # bosses (the same flag the real client uses for the big boss
-        # health-bar UI), matching the classic roguelike convention.
+        # Name-derived letter reads better than a generic '*' at scale;
+        # uppercase for HealthBarBoss bosses (roguelike convention).
         color = nearestCursesColor(r, g, b)
         if color == "BLACK":
             found = findRepresentativeColor(sheet_images[rect.sheet], rect)
             if found is not None:
                 color = nearestCursesColor(*found)
-            # Either nothing but near-black pixels exist, or the best pixel
-            # found is still grey/dark enough to classify as BLACK -
-            # genuinely a dark/grey sprite either way. Substitute a color
-            # that's still visible on a black terminal background.
+            # Genuinely dark/grey sprite either way - substitute a visible color.
             if color == "BLACK":
                 color = VISIBLE_FALLBACK_COLOR
         letter = _firstAlphaChar(entity.name)
         chars = [letter.upper() if entity.isBoss else letter.lower()] if letter else [DEFAULT_CHARS.get(category, "?")]
     elif entity.isLootBag:
-        # Bag color signals rarity/contents to the player - it's the whole
-        # point of the glyph, so it's classified from the sprite's real
-        # color instead of going through the generic BLACK/center-out-search
-        # fallback path (which exists for sprites where color is cosmetic,
-        # not informational).
+        # Bag color signals rarity - classified from real sprite color
+        # directly, skipping the BLACK/center-out fallback (that's for
+        # sprites where color is merely cosmetic).
         color = classifyBagColor(r, g, b)
         chars = [LOOT_BAG_CHAR]
     else:

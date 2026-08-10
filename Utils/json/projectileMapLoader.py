@@ -19,12 +19,10 @@ class ProjectileDefinition:
         self.armorPiercing = armorPiercing
         self.passesCover = passesCover
         self.extras = extras
-        # rateOfFire/numProjectiles/arcGapDegrees are weapon-level attack-
-        # cadence/fan-out attributes (RealmEye's "Weapon Attributes" wiki),
-        # not properties of the projectile's flight - carried here anyway so
-        # shootInput.py's outgoing-shot construction can reuse this same
-        # lookup instead of a second file. visualObjectType bridges to this
-        # projectile's own renderMap.json entry for its real glyph/color.
+        # rateOfFire/numProjectiles/arcGapDegrees are weapon cadence/fan-out
+        # attrs, not projectile-flight properties - carried so shootInput.py
+        # can reuse this lookup. visualObjectType bridges to renderMap.json
+        # for this projectile's real glyph/color.
         self.rateOfFire = rateOfFire
         self.numProjectiles = numProjectiles
         self.arcGapDegrees = arcGapDegrees
@@ -32,13 +30,10 @@ class ProjectileDefinition:
 
 
 def projectileMapLoader(path: str = "Resources/projectileMap.json") -> Dict[int, Dict[int, ProjectileDefinition]]:
-    """Loads `Resources/projectileMap.json` (written by
-    `Scripts/AssetPipeline/writeProjectileMap.py`) into
-    {ownerObjectType: {projectileId: ProjectileDefinition}}.
-
-    `ownerObjectType` is a weapon or enemy's static objectType; `projectileId`
-    is the slot a live SERVERPLAYERSHOOT/ENEMYSHOOT packet's containerType/
-    bulletType references - see `getProjectileDefinition`.
+    """Loads `Resources/projectileMap.json` into
+    {ownerObjectType: {projectileId: ProjectileDefinition}}. `projectileId` is
+    the slot a SERVERPLAYERSHOOT/ENEMYSHOOT packet's containerType/bulletType
+    references - see `getProjectileDefinition`.
     """
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
@@ -78,30 +73,14 @@ def getProjectileDefinition(
 def resolveShotProjectileIds(
     projectileMap: Dict[int, Dict[int, ProjectileDefinition]], ownerObjectType: int, numProjectiles: int
 ) -> List[int]:
-    """Which projectile id each shot in a player weapon's own multi-shot fan
-    actually uses - **not** all the same id, for weapons with more than one
-    `<Projectile>` block. Confirmed against real game data: every tiered bow
-    (e.g. Golden Bow) defines two distinct projectiles for its 3-shot volley -
-    id 0 "Large Arrow" (the stronger one) and id 1 "Small Arrow" (weaker) -
-    and the fan's *center* shot (closest to the aim direction) uses the
-    strong one while the flanking side shots use the weak one. this is a
-    real, confirmed gameplay mechanic (RotMG's own "true DPS" calculations
-    account for it), not a rendering nicety - previously this codebase always
-    used id 0 for every shot in the fan, silently wrong for every such
-    weapon's side shots (both for the player's own predicted shots and for
-    rendering other players'/enemies' bow volleys).
-
-    Since SERVERPLAYERSHOOT carries no per-shot projectile-id field (unlike
-    ENEMYSHOOT's `bulletType`), the client has to derive this purely from
-    static weapon data - shots are ranked by absolute distance from the fan's
-    center angle (ties share a rank, matching the bow's symmetric left/right
-    side shots), and ranks map onto the available ids sorted ascending
-    (lowest id = closest to center), clamping to the last id once ids run
-    out. This exactly reproduces every confirmed 3-shot/2-id tiered bow.
-    Rarer patterns (an even shot count with multiple ids, or 3+ distinct ids
-    on one weapon) aren't independently confirmed - this formula still
-    produces a deterministic, reasonable result for them, just not verified
-    against real capture data the way the common case is.
+    """Not every shot in a multi-shot fan uses the same projectile id: tiered
+    bows (e.g. Golden Bow) use a stronger id for the center shot and a weaker
+    id for flanking shots - a real damage mechanic, not cosmetic.
+    SERVERPLAYERSHOOT carries no per-shot id, so shots are ranked by distance
+    from the fan's center angle (ties share a rank) and mapped onto the
+    available ids sorted ascending (closest = lowest id), clamping past the
+    last id. Verified against confirmed 3-shot/2-id bows; other id/shot-count
+    combos are unverified but still deterministic.
     """
     available = sorted(projectileMap.get(ownerObjectType, {}).keys())
     if not available:

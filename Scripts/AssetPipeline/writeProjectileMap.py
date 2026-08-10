@@ -1,13 +1,10 @@
 """
-Writes `Resources/projectileMap.json` - a runtime-loadable lookup of every
-<Projectile> definition parsed out of the game XML by `parseGameXml.py`,
-keyed by the owning weapon/enemy's objectType and then by the projectile's
-own `id` (the slot a live SERVERPLAYERSHOOT/ENEMYSHOOT packet references).
+Writes `Resources/projectileMap.json`: every <Projectile> definition from
+`parseGameXml.py`, keyed by owning weapon/enemy objectType then projectile
+`id` (the slot a SERVERPLAYERSHOOT/ENEMYSHOOT packet references).
 
-Unlike `renderMap.json`, there's no derive/override step here - this is a
-straight structural copy of what `parseGameXml.py` already extracted.
-Speed/damage/lifetime come directly from the XML, not approximated from
-pixel data the way color is, so there's nothing to hand-correct.
+Unlike renderMap.json, no derive/override step - straight structural copy,
+since speed/damage/lifetime come directly from XML, not pixel data.
 """
 
 import json
@@ -41,15 +38,10 @@ def _projectileToDict(proj: ParsedProjectile, nameToId: dict) -> dict:
         "rateOfFire": proj.rateOfFire,
         "numProjectiles": proj.numProjectiles,
         "arcGapDegrees": proj.arcGapDegrees,
-        # A projectile's own visual identity (e.g. "Cultist Fire Shot") is a
-        # *separate* <Object> element (in practice always in projectiles.xml,
-        # since that's the manifest.json file that defines them) from the
-        # weapon/enemy <Object> that fires it - resolved here by matching
-        # ParsedProjectile.objectId (a display name, not a numeric id)
-        # against every parsed entity's name, so the map renderer can look up
-        # this projectile's real color via the exact same renderMap.json/
-        # objectRenderInfo() path already used for every other on-map object,
-        # rather than needing a second color-derivation pipeline.
+        # A projectile's visual identity is a separate <Object> (objectId is
+        # a display name, not numeric) - resolved to its entity id here so
+        # the renderer can reuse the normal renderMap.json color path
+        # instead of a second derivation pipeline.
         "visualObjectType": nameToId.get(proj.objectId),
     }
 

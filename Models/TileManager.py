@@ -12,10 +12,8 @@ from Models.ProjectileStore import Projectile, ProjectileStore
 from Utils.json.objectNameLoader import ObjectRenderInfo, groundRenderInfo, objectRenderInfo
 from Utils.XML.parseGroundTypes import groundIdToData
 
-VIEW_RADIUS_TILES = 15  # tunable cap: the most world tiles ever rendered on each side of the player,
-                         # regardless of how much terminal space is available (see mapRenderer.computeScale -
-                         # a bigger/zoomed-out terminal shows more world up to this cap, not bigger tiles,
-                         # so this bounds the per-frame rebuild cost rather than fixing the window size)
+VIEW_RADIUS_TILES = 15  # cap on world tiles rendered per side of the player, regardless of terminal
+                         # size (see mapRenderer.computeScale) - bounds per-frame rebuild cost
 
 _PROJECTILE_CHAR = "+"
 _PROJECTILE_FALLBACK_COLOR = "WHITE"
@@ -23,32 +21,21 @@ _PROJECTILE_FALLBACK_COLOR = "WHITE"
 _SELF_CHAR = "@"
 _SELF_FALLBACK_COLOR = "WHITE"
 
-# Other players render as the same '@' glyph as self, colored by
-# relationship rather than by their class's sprite color - guildmates and
-# friends should be recognizable as such at a glance. A locked-only account
-# (see AccountListPacket) that's neither a guildmate nor a friend gets a
-# third, distinct fallback color.
+# Other players render as '@' colored by relationship, not class sprite,
+# so guild/friend/locked accounts are recognizable at a glance.
 _OTHER_PLAYER_CHAR = "@"
 _GUILD_COLOR = "GREEN"
 _FRIEND_COLOR = "YELLOW"
 _LOCKED_FALLBACK_COLOR = "MAGENTA"
 
-# Ground tiles flagged NoWalk (chasms, deep water, etc. - GroundTypeData.
-# noWalk, not renderMap.json's chars/color, which don't distinguish walkable
-# from unwalkable floor) render as a wall glyph instead of their normal
-# floor glyph, so they read as impassable at a glance instead of looking
-# like ordinary floor.
+# NoWalk ground (GroundTypeData.noWalk, not renderMap's chars/color) renders
+# as a wall glyph so it reads as impassable instead of ordinary floor.
 _NOWALK_GROUND_CHAR = "#"
 _NOWALK_GROUND_COLOR = "WHITE"
 
-# Ground tiles flagged Sink (GroundTypeData.sink - RotMG's real gameplay
-# flag for "you sink into this": every water and lava type in the game XML,
-# plus a handful of similar liquid hazards like whirlpools/vats/oil slicks -
-# confirmed by cross-checking every <Sink/>-flagged ground id) render as a
-# wave glyph instead of their normal (renderMap-derived) floor glyph, so
-# liquid reads as liquid at a glance. Checked after NoWalk, not before -
-# some deep-water ids are flagged both, and "impassable" is the more
-# critical signal to preserve there than "this is liquid".
+# Sink ground (GroundTypeData.sink - water/lava/similar hazards) renders as
+# a wave glyph. Checked after NoWalk since some deep-water ids are flagged
+# both, and impassability is the more critical signal.
 _LIQUID_GROUND_CHAR = "~"
 _LIQUID_FALLBACK_COLOR = "CYAN"
 
@@ -64,7 +51,7 @@ class Tier(Enum):
     LOOT_BAG = auto()
 
 
-# Highest-priority tier first - the render hierarchy's exact order.
+# Highest priority first - matches the render hierarchy exactly.
 _TIER_PRIORITY = (
     Tier.SELF, Tier.ENEMY, Tier.LOOT_BAG, Tier.PROJECTILE, Tier.WALL, Tier.PORTAL, Tier.INTERACTIVE_NPC,
     Tier.OTHER_PLAYER,
@@ -79,10 +66,8 @@ class RenderCell:
 
 def otherPlayerRelationship(obj: GameObject, friendsList: Set[str], guildMembers: Set[str],
                              lockedAccounts: Set[str]) -> Optional[str]:
-    """Which relationship (if any) makes this player-class object render at
-    all: "GUILD", "FRIEND", or "LOCKED" (an AccountListPacket-locked account
-    that's neither), in that priority order if more than one applies. None
-    means excluded entirely - not a lower render tier, just not drawn.
+    """Which relationship makes a player-class object render: GUILD, FRIEND,
+    or LOCKED, in that priority order. None means excluded, not a lower tier.
     """
     nameStat = obj.stats.get(StatTypes.NAMESTAT)
     name = nameStat.strStatValue if nameStat is not None else None
@@ -99,12 +84,10 @@ def otherPlayerRelationship(obj: GameObject, friendsList: Set[str], guildMembers
 
 def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[ObjectRenderInfo],
                     friendsList: Set[str], guildMembers: Set[str], lockedAccounts: Set[str]) -> Optional[Tier]:
-    """Single-pass precedence matching the render hierarchy exactly: self ->
+    """Single-pass tier precedence matching the render hierarchy: self ->
     enemy -> wall -> portal -> interactive NPC -> other-player (friend/
-    guild/locked only) -> loot bag -> excluded. Anything that doesn't match
-    one of these tiers (pets, quest NPCs, decorative summons, unclassified
-    objects) is deliberately excluded from rendering rather than falling
-    through to a lower tier.
+    guild/locked only) -> loot bag -> excluded. Non-matches are excluded
+    entirely, not downgraded to a lower tier.
     """
     if obj.objectId == listenerObjectId:
         return Tier.SELF
@@ -119,28 +102,34 @@ def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[Object
     if ClassIds.idToClass(obj.objectType) is not None:
         if otherPlayerRelationship(obj, friendsList, guildMembers, lockedAccounts) is not None:
             return Tier.OTHER_PLAYER
-        return None  # a player-class object that's not a friend/guildmate/locked account: excluded
+        return None  # not a friend/guildmate/locked account: excluded
     if info is not None and info.isLootBag:
         return Tier.LOOT_BAG
     return None
 
 
-def isTileBlocked(state: GameState, tileX: int, tileY: int) -> bool:
-    """Whether a world tile is impassable - either a wall/unwalkable object
-    occupying it (same `blocksMovement` flag the WALL render tier uses), or
-    its ground type is flagged NoWalk in the game's own XML (`GroundTypeData.
-    noWalk`, distinct from `groundRenderInfo`'s chars/color - that one only
-    covers rendering). Used by movement-input collision checks, not just
-    rendering; a tile with no known ground data is treated as passable
-    (fail-open on missing info, matching this codebase's convention
-    elsewhere) rather than blocked.
+BlockedTileIndex = Set[Tuple[int, int]]
+
+
+def buildBlockedTileIndex(state: GameState) -> BlockedTileIndex:
+    """Tile coords occupied by a wall/unwalkable object (`blocksMovement`).
+    Built once per movement-input frame so isTileBlocked's per-frame queries
+    don't each rescan state.objects from scratch.
     """
+    blocked: BlockedTileIndex = set()
     for obj in state.objects.values():
-        if math.floor(obj.pos.x) != tileX or math.floor(obj.pos.y) != tileY:
-            continue
         info = objectRenderInfo(obj.objectType)
         if info is not None and info.blocksMovement:
-            return True
+            blocked.add((math.floor(obj.pos.x), math.floor(obj.pos.y)))
+    return blocked
+
+
+def isTileBlocked(state: GameState, blockedTiles: BlockedTileIndex, tileX: int, tileY: int) -> bool:
+    """Whether a tile is impassable: occupied in `blockedTiles`, or its
+    ground is flagged NoWalk. Missing ground data fails open (passable).
+    """
+    if (tileX, tileY) in blockedTiles:
+        return True
 
     tile = state.tiles.get((tileX, tileY))
     if tile is not None:
@@ -153,15 +142,10 @@ def isTileBlocked(state: GameState, tileX: int, tileY: int) -> bool:
 
 def _pickChar(chars: List[str], rng: random.Random, charCache: Dict[Tuple[str, int, int, int], str],
               category: str, tileX: int, tileY: int, entityId: int) -> str:
-    """Multi-glyph entries (e.g. a floor tile with several texture variants -
-    see renderMapOverrides.jsonEXAMPLE) pick one at random the first time a
-    given (category, tile, entity) combination is drawn, then keep returning
-    that same choice - `buildVisibleTiles` reruns every frame (see below), so
-    without caching, a fresh `rng.choice()` every frame would flicker between
-    variants instead of the tile settling on one. `charCache` is caller-owned
-    (see mapRenderer.drawFrame) so it persists across frames instead of
-    resetting; `rng` is caller-owned for the same reason, so its state
-    advances across the whole session instead of restarting every call.
+    """Multi-glyph entries pick a random variant once per (category, tile,
+    entity) and cache it, so the tile doesn't flicker between variants every
+    frame (buildVisibleTiles reruns fully each frame). `charCache`/`rng` are
+    caller-owned so they persist across frames instead of resetting.
     """
     if len(chars) == 1:
         return chars[0]
@@ -178,14 +162,9 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
                        lockedAccounts: Set[str], rng: random.Random,
                        charCache: Dict[Tuple[str, int, int, int], str],
                        viewRadius: int = VIEW_RADIUS_TILES) -> Dict[Tuple[int, int], RenderCell]:
-    """Rebuilt fresh every frame - a pure derived view over GameState/
-    ProjectileStore, not an incrementally-synced structure. GameState is
-    already the single incrementally-updated source of truth; a second
-    mutation-tracked structure on top of it would duplicate that bookkeeping
-    (e.g. moving an enemy between tile-buckets on every position update) and
-    risk drift bugs. The window is small (`viewRadius` is capped at
-    VIEW_RADIUS_TILES by the caller - see mapRenderer.computeScale), so a
-    full rebuild every frame is cheap.
+    """Rebuilt fresh every frame from GameState/ProjectileStore rather than
+    incrementally synced, to avoid duplicating GameState's own bookkeeping
+    and risking drift. Cheap since `viewRadius` keeps the window small.
     """
     minX, maxX = playerTileX - viewRadius, playerTileX + viewRadius
     minY, maxY = playerTileY - viewRadius, playerTileY + viewRadius
@@ -196,9 +175,8 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
 
     now = time.time()
     for obj in state.objects.values():
-        # The local player's own entry is already smoothed to ticker.pos by
-        # the caller each frame (see mapRenderer.drawFrame) - only other
-        # objects need dead-reckoning between NEWTICK packets.
+        # Local player's entry is already smoothed to ticker.pos by the
+        # caller; only other objects need dead-reckoning.
         pos = obj.pos if obj.objectId == listenerObjectId else obj.renderPos(now)
         tileX, tileY = math.floor(pos.x), math.floor(pos.y)
         if not (minX <= tileX <= maxX and minY <= tileY <= maxY):
@@ -210,10 +188,8 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
         perTile[tier].setdefault((tileX, tileY), []).append(obj)
 
     for proj in projectiles.projectiles.values():
-        # A bullet only matters if it's dangerous to us (an enemy's) or is
-        # our own - not another player's, friend/guild or otherwise (e.g. a
-        # stranger cosmetically shooting their bow in the Nexus, where
-        # there's no combat but the shoot packets still go out anyway).
+        # Only enemy or our own bullets matter - not another player's (e.g.
+        # cosmetic Nexus shooting, where the packets go out but there's no combat).
         owner = state.objects.get(proj.ownerId)
         if owner is None:
             continue
@@ -247,26 +223,19 @@ def _resolveCell(key: Tuple[int, int],
         if not occupants:
             continue
         if tier == Tier.PROJECTILE:
-            # Highest-damage projectile currently over this tile wins. Glyph
-            # is always the fixed '+' (there's no per-projectile-shape data
-            # to draw from at ASCII resolution anyway), but color comes from
-            # the projectile's own renderMap.json entry when its visual
-            # identity resolved (see ProjectileDefinition.visualObjectType) -
-            # falling back to a fixed color only if it didn't (e.g. a
-            # projectile whose name never resolved to a rendered <Object>).
+            # Highest-damage projectile on the tile wins. Color resolves via
+            # its own renderMap entry (visualObjectType), else a fallback.
             winner = max(occupants, key=lambda p: p.damage)
             info = objectRenderInfo(winner.visualObjectType) if winner.visualObjectType is not None else None
             color = info.color if info is not None else _PROJECTILE_FALLBACK_COLOR
             return RenderCell(char=_PROJECTILE_CHAR, colorName=color)
         winnerObj = occupants[0]
         if tier == Tier.SELF:
-            # Always a fixed '@' regardless of class sprite - the player is
-            # always screen-center, so it needs to read as "you" at a glance.
+            # Fixed '@' regardless of class sprite - always screen-center, reads as "you".
             info = objectRenderInfo(winnerObj.objectType)
             return RenderCell(char=_SELF_CHAR, colorName=info.color if info is not None else _SELF_FALLBACK_COLOR)
         if tier == Tier.OTHER_PLAYER:
-            # Fixed '@' colored by relationship, not by class sprite - a
-            # guildmate/friend should be recognizable as such at a glance.
+            # Fixed '@' colored by relationship, not class sprite.
             relationship = otherPlayerRelationship(winnerObj, friendsList, guildMembers, lockedAccounts)
             color = {
                 "GUILD": _GUILD_COLOR,

@@ -12,6 +12,7 @@ import Networking.PacketHelper as PacketHelper
 from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
+from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen import bottomPanel, inventoryPanel, itemInfoPeek, uiPanel
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
@@ -22,27 +23,15 @@ from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMa
 
 import curses, threading, queue, time
 
-# Target render-loop cadence for _connectedLoop, once past the handshake -
-# tunable. The loop below times how long each iteration's own work (queue
-# drain/apply, draw, input) actually took and only sleeps the remainder, so
-# this is a target rate, not an on-top-of-everything-else fixed delay.
-#
-# Lowered from 120 to 60 (2026-08-10): actual per-frame work is ~4-7ms
-# (see the drawFrame/frame-time breakdown logging below), leaving almost no
-# headroom against the old 8.3ms/120fps budget - routine variance tripped
-# the over-budget warning constantly. Movement (Ticker) dead-reckons on its
-# own independent 60Hz clock regardless of this value, and network handling
-# doesn't depend on render cadence either, so this only affects how often
-# the screen visually redraws - not gameplay responsiveness. Also halves
-# total drawFrame/refresh/input-polling CPU load, not just the budget.
+# Target rate, not a fixed delay - the loop sleeps only the remainder after
+# its own work. Lowered from 120 to 60: actual per-frame work left almost no
+# headroom against the 120fps budget, tripping the over-budget warning
+# constantly - movement/network don't depend on render cadence anyway.
 FRAME_INTERVAL_SECONDS = 1 / 60
 
-# Returned by _handshake/_connectedLoop to mean "a RECONNECT was just handled
-# (socket torn down, ctx["PENDING_RECONNECT_HELLO"] set) - loop back through
-# _establishConnection instead of leaving gameScreen". Distinct from None
-# (proceed to the next stage as normal) and an actual Screen (leave
-# gameScreen for good, e.g. FAILURE -> charSelect) - neither of those two
-# existing return values can double as this third case.
+# Returned by _handshake/_connectedLoop when a RECONNECT was just handled -
+# loop back through _establishConnection instead of leaving gameScreen.
+# Distinct from None (proceed normally) and an actual Screen (leave for good).
 _RECONNECT = object()
 
 
@@ -51,15 +40,8 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
     debugger.info("Entering gameScreen")
 
     stdscr.erase()
-    # Unlike every other screen's 1500-row pad (sized generously for a long
-    # *scrollable* list, erased/recreated at most once per screen visit),
-    # this screen never scrolls - determineRefreshWindow is always called
-    # with yIndex=0 (see drawFrame) - and pad.erase() runs on every single
-    # frame, up to 120/sec. A 1500-row pad here was just copied from the
-    # other screens without revisiting that cost. 500 matches the column
-    # dimension's already-proven-safe generous sizing (see CLAUDE.md - a
-    # too-narrow pad has caused real addstr() crashes before) while still
-    # being a third of the original row count.
+    # Unlike other screens' 1500-row pads, this one never scrolls and erases
+    # every frame - 500 rows keeps the same column-count safety margin cheaper.
     pad = curses.newpad(500, 500)
 
     pad.keypad(True)
@@ -67,11 +49,7 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
     pad.nodelay(True)
 
     # A RECONNECT (see _handleReconnect) loops back to the top instead of
-    # returning - same pad/screen, a fresh connection underneath. Nothing
-    # else in this loop needs to change: _establishConnection already draws
-    # its own "Connecting..." interstitial, and _handshake/_connectedLoop
-    # each recreate their own local state (GameState/PlayerData/etc.) fresh
-    # every call.
+    # returning - same pad, a fresh connection underneath.
     while True:
         if ctx.get("LISTENER") is None:
             failure = _establishConnection(stdscr, pad, ctx)
@@ -100,6 +78,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
     while connectThread.is_alive():
         pad.move(0, 0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         y = drawCenteredBanner(stdscr, pad, 0, "Connecting")
         y = drawCenteredText(stdscr, pad, y + 1, f"to server{''.join(buf)}")
         determineRefreshWindow(stdscr, pad, y)
@@ -170,6 +149,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
     while True:
         pad.move(0, 0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         y = drawCenteredBanner(stdscr, pad, 0, "Connecting")
         y = drawCenteredText(stdscr, pad, y + 1, f"to {mapName}..." if mapName else "...")
         determineRefreshWindow(stdscr, pad, y)
@@ -199,10 +179,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                     outgoingQueue.put(showAllyShoot)
                     return None
                 elif packetType == "ACCOUNTLIST":
-                    # Sent right after login, before CREATESUCCESS - handled
-                    # here too, not just in _connectedLoop's dispatch,
-                    # otherwise this phase's narrow MAPINFO/FAILURE/
-                    # CREATESUCCESS-only filter silently drops it.
+                    # Arrives before CREATESUCCESS - must be handled here too, or this phase's filter drops it.
                     _applyAccountList(ctx, event)
         except queue.Empty:
             pass
@@ -213,19 +190,10 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
 def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: int, projectileIds,
                        ownerId: int, bulletId: int, startingPos, baseAngle: float, angleInc: float,
                        numShots: int, damage: int) -> None:
-    """Fan out `numShots` bullets starting at `baseAngle`, each subsequent one
-    offset by `angleInc` - the server sends one shoot packet per burst, not one
-    per bullet. This exact fan formula isn't documented anywhere authoritative
-    (see CLAUDE.local.md); it matches every reference implementation's field
-    naming (`angle` = first shot, `angleIncrement`/`angleInc` = per-shot step).
-
-    `projectileIds` is a list, one entry per shot index - not every shot in a
-    weapon's own fan necessarily uses the same projectile type (tiered bows
-    fire a stronger center arrow and weaker side arrows, two distinct
-    `<Projectile>` definitions on the same weapon - see
-    Utils.json.projectileMapLoader.resolveShotProjectileIds). Enemy shots
-    always pass the same single id repeated for every shot (their own
-    `bulletType` selects one specific attack for the whole burst).
+    """Fans out `numShots` bullets from `baseAngle`, each offset by `angleInc` -
+    one shoot packet covers the whole burst, not one per bullet.
+    `projectileIds` is per-shot (tiered bows fire a stronger center arrow and
+    weaker side arrows); enemy shots repeat the same id for every shot.
     """
     for i in range(max(1, numShots)):
         projectileId = projectileIds[i] if i < len(projectileIds) else projectileIds[-1]
@@ -330,21 +298,10 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                 elif event.type == "ACCOUNTLIST":
                     _applyAccountList(ctx, event)
                 elif event.type == "INVRESULT":
-                    # The server's ack/nack for the last INVSWAP/USEITEM this
-                    # client sent - confirmed (rotmg_mitm_py's BuffAbility
-                    # plugin, see CLAUDE.local.md's Reference projects)
-                    # unknownBool is a success flag (False = silently
-                    # rejected - the swap never happened server-side, no
-                    # stat delta will ever follow it) and unknownByte
-                    # distinguishes a swap ack (0) from a plain item-use ack
-                    # (1). Not needed to actually reflect a *successful*
-                    # swap - that already arrives generically via the next
-                    # NEWTICK/UPDATE's ordinary INVENTORY*/BACKPACK* stat
-                    # deltas (GameState.applyNewTick / PlayerData.parseStats
-                    # apply to any tracked object, player or bag, with no
-                    # INVSWAP-specific code needed) - logged here purely so
-                    # a *rejected* swap is visible in Debug/debug.txt instead
-                    # of just silently doing nothing.
+                    # Ack/nack for the last INVSWAP/USEITEM sent - unknownBool is a
+                    # success flag (confirmed via rotmg_mitm_py, see CLAUDE.local.md).
+                    # A successful swap already shows up via the next NEWTICK/UPDATE's
+                    # stat deltas; this just logs a silent rejection.
                     if not event.unknownBool:
                         debugger.warning(
                             f"INVRESULT: swap/use REJECTED by server "

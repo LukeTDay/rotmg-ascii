@@ -1,12 +1,10 @@
 """
-Locates the local RotMG Exalt install directory (the folder containing
-`resources.assets`, e.g. `.../RotMG Exalt_Data`), so the rest of the asset
-pipeline knows where to read Unity asset bundles from.
+Locates the local RotMG Exalt install directory (folder containing
+`resources.assets`), so the rest of the pipeline knows where to read from.
 
-Ported from exalt-extractor's `utils/Resources.py::get_resource_path`, with
-its console-input fallback swapped for a Tkinter folder-picker popup per
-project preference, and a local path cache added so the picker only appears
-once per machine.
+Ported from exalt-extractor's Resources.py::get_resource_path, swapping its
+console-input fallback for a Tkinter folder picker, plus a local path cache
+so the picker only appears once per machine.
 """
 
 import pathlib

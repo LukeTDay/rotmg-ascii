@@ -40,9 +40,7 @@ def parseCharList(r : requests.models.Response, debugger):
         for equipment in equipmentText.split(","):
             equipmentList.append(int(equipment))
 
-        # Not every account/char is guaranteed to have this element, and it's
-        # non-critical, so a missing/empty value just means "not in crucible"
-        # rather than skipping the whole character like the fields above.
+        # Non-critical/optional: missing or empty just means "not in crucible".
         crucibleElement = char.find("CrucibleActive")
         isInCrucible = bool(crucibleElement is not None and crucibleElement.text)
 

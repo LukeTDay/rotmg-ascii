@@ -1,9 +1,7 @@
 """
-Orchestrator: runs the full asset pipeline end to end and writes the final
-`Resources/renderMap.json` + `Resources/version.txt`. Re-extracts fresh from
-the local install every run (fast - a few seconds) rather than assuming
-`Resources/_generated/` is already up to date, since the whole point is
-"run this after every game update" without manual steps.
+Orchestrator: runs the full asset pipeline end to end, writing
+`Resources/renderMap.json` + `Resources/version.txt`. Re-extracts from the
+local install every run rather than assuming `_generated/` is up to date.
 
     python -m Scripts.AssetPipeline.run
 """

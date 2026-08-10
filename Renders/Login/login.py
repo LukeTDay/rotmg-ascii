@@ -7,33 +7,27 @@ from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
 from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, verifyWorker
+from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
 
 import curses, threading, queue, time, requests,os
 from typing import List
 
 def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
-    """
-    The goal of this screen is to give the user something 
-    to look at while all of their information is fetched
-    from backend API endpoints.
-    """
+    """Screen shown while account/friends/guild/char/server data is fetched."""
 
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     debugger.info("Entering login screen")
 
-    #Erasing the screen before making the pad
     stdscr.erase()
     pad = curses.newpad(1500 ,500)
 
     pad.keypad(True)
     pad.clrtobot()
 
-    #yIndex for printing to the pad throughout the function
     yIndex = drawCenteredBanner(stdscr, pad, 0, "Checking")
     determineRefreshWindow(stdscr,pad,yIndex)
 
-    #Loading the account so that it can be verified
     currentAccount = required(ctx.get("account"), "account")
 
     resultQueue = queue.Queue()
@@ -45,6 +39,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     while tokenThread.is_alive():
         pad.move(0,0)
         pad.clrtobot()
+        drawBackgroundTexture(stdscr, pad, ctx)
         yIndex = drawCenteredBanner(stdscr, pad, 0, "Verifying")
         yIndex = drawTextAt(stdscr, pad, yIndex + 1, verifyingTextX, f"ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
@@ -81,6 +76,7 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     debugger.info("Account token verified")
     pad.move(0,0)
     pad.clrtobot()
+    drawBackgroundTexture(stdscr, pad, ctx)
     yIndex = drawCenteredBanner(stdscr, pad, 0, "Verified")
     determineRefreshWindow(stdscr,pad,yIndex)
 

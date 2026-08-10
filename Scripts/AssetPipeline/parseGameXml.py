@@ -1,29 +1,15 @@
 """
-Parses the XML TextAssets extracted by `extractBundles.py` into per-object /
-per-ground-type identity data: numeric type id, display name, and the list
-of sprite rects (via `spriteIndex.py`) that render it.
+Parses XML TextAssets from `extractBundles.py` into per-object/per-ground-type
+identity data: numeric id, display name, sprite rects (via `spriteIndex.py`).
 
-Follows the same defensive "skip the element if a critical field is
-missing" pattern as `Utils/XML/parseObjectNames.py` / `parseGroundTypes.py`
-(this repo's existing convention for RotMG XML), but differs from those two
-in three ways the real extracted data required:
-
-- There isn't one `object.xml`/`ground.xml` — `manifest.json` (extracted
-  alongside the XML files) lists exactly which extracted files belong to
-  the "objects" category and which belong to "tiles" (ground), including
-  ~150/~55 per-dungeon override files respectively. That list is the
-  authoritative source of which files to parse, rather than a filename
-  guess.
-- A `<Ground>` (and occasionally `<Object>`) element can wrap several
-  `<Texture>` children in a `<RandomTexture>` block — the game picks one at
-  random for visual variety on otherwise-identical tiles (e.g. "Wood Plank
-  Floor" has 5 texture variants). Every variant is collected, not just the
-  first, since this is exactly the real, data-driven version of the
-  "render a floor as `.` sometimes and `,` other times" case Phase 3/4 are
-  designed around.
-- `<AnimatedTexture>` is treated the same as `<Texture>` (same `File`/
-  `Index` children) per the reference parsing in RealmShark's
-  `AssetExtractor.addTexture`.
+Same defensive "skip element if a critical field is missing" pattern as
+`Utils/XML/parseObjectNames.py`/`parseGroundTypes.py`, with three differences:
+- `manifest.json` lists which extracted files are "objects" vs "tiles"
+  (ground), including per-dungeon overrides — the authoritative file list,
+  not a filename guess.
+- A `<RandomTexture>` block wraps several `<Texture>` variants (e.g. "Wood
+  Plank Floor" has 5) — all are collected, not just the first.
+- `<AnimatedTexture>` is treated like `<Texture>` (same File/Index children).
 """
 
 import json
@@ -44,20 +30,15 @@ GENERATED_ROOT = Path(__file__).resolve().parents[2] / "Resources" / "_generated
 
 TEXTURE_TAGS = ("Texture", "AnimatedTexture")
 
-# Projectile sub-fields modeled explicitly - the ones needed to simulate a
-# shot's flight (speed/lifetime), damage, and hitbox size. Everything else a
-# <Projectile> can carry (Wavy, Boomerang, Parametric, TurnRate*, Acceleration*,
-# etc. - real flight-pattern variants, not typos) is preserved in
-# ParsedProjectile.extras instead of being modeled here, so that data isn't
-# lost even though nothing consumes it yet.
+# Fields needed to simulate flight/damage/hitbox; everything else a
+# <Projectile> can carry (Wavy, Boomerang, TurnRate*, etc. - real flight
+# variants, not typos) is preserved in ParsedProjectile.extras instead.
 _PROJECTILE_CORE_TAGS = {
     "ObjectId", "Speed", "LifetimeMS", "Damage", "MinDamage", "MaxDamage",
     "Size", "MultiHit", "ArmorPiercing", "PassesCover",
 }
 
-# <Class> values that mark a click-to-interact NPC (shopkeepers, the
-# enchanter, the vault/yard upgrader, info signs) - same per-field XML-class
-# check as isLootBag's "Container"/isPortal's "Portal".
+# Click-to-interact NPC classes - same per-field check as isLootBag/isPortal.
 _INTERACTIVE_NPC_CLASSES = {"Merchant", "Enchanter", "YardUpgrader", "InteractiveInfoObject"}
 
 
@@ -75,15 +56,9 @@ class ParsedProjectile:
     armorPiercing: bool = False
     passesCover: bool = False
     extras: dict[str, str] = field(default_factory=dict)  # raw text of any other child tag, by tag name
-    # Attack-cadence/fan-out attributes - these belong to the owning weapon's
-    # <Object> element, not to this specific <Projectile> block (confirmed
-    # against real weapon XML and RealmEye's "Weapon Attributes" wiki page),
-    # but are duplicated onto every ParsedProjectile of that owner here so a
-    # single getProjectileDefinition(map, weaponId, 0) lookup already used
-    # for rendering can also serve outgoing-shot construction without a
-    # second lookup file. rateOfFire is the same fraction as the in-game %
-    # (100% = normal tiered speed); numProjectiles/arcGapDegrees default to
-    # 1/11.25 per RealmEye when a weapon's XML doesn't define them.
+    # Belong to the owning <Object>, not the <Projectile> child (confirmed
+    # vs real weapon XML) - duplicated onto every ParsedProjectile here so
+    # one lookup serves both rendering and outgoing-shot construction.
     rateOfFire: float = 1.0
     numProjectiles: int = 1
     arcGapDegrees: float = 11.25
@@ -95,16 +70,9 @@ class ParsedEntity:
     name: str
     textureRefs: list[tuple[str, int]] = field(default_factory=list)  # (spriteSheetName, index)
     projectiles: list[ParsedProjectile] = field(default_factory=list)
-    # Only ever set for `Object` elements (Ground elements keep these defaults) -
-    # used by the map renderer's hierarchy: walls block movement, Enemy marks a
-    # hostile monster (vs. a pet/NPC/decorative summon, which is deliberately
-    # excluded from rendering rather than falling through to a lower tier),
-    # Container marks the loot-bag/chest/gravestone family, Portal marks
-    # realm/dungeon/Nexus portals, and Merchant/Enchanter/YardUpgrader/
-    # InteractiveInfoObject mark click-to-interact NPCs (shopkeepers, the
-    # enchanter, the vault upgrader, info signs). HealthBarBoss is the same
-    # flag the real client uses to show the big boss health-bar UI - used
-    # here to uppercase a boss enemy's name-derived glyph.
+    # Object-only flags (Ground keeps defaults) feeding the map renderer's
+    # tier hierarchy. HealthBarBoss is the real client's own boss-UI flag,
+    # reused here to uppercase a boss's name-derived glyph.
     blocksMovement: bool = False
     isEnemy: bool = False
     isLootBag: bool = False
@@ -166,19 +134,12 @@ def _parseNumber(raw: str | None) -> float | None:
 
 
 def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
-    """Parse every direct <Projectile id="N"> child of an <Object> (a weapon or
-    an enemy). `id` selects which of an owner's projectiles a live
-    SERVERPLAYERSHOOT/ENEMYSHOOT packet is referring to; missing `id` defaults
-    to 0, the common case for single-projectile weapons.
-
-    RateOfFire/NumProjectiles/ArcGap are attributes of the owning <Object>
-    itself, not of any individual <Projectile> child (confirmed against real
-    weapon XML - see CLAUDE.local.md's MITM findings), so they're read once
-    from `elem` here and duplicated onto every ParsedProjectile this owner
-    produces. Per RealmEye's "Weapon Attributes" wiki: RateOfFire defaults to
-    1.0 (100%, normal tiered speed) and NumProjectiles to 1 when undefined;
-    ArcGap defaults to 11.25 degrees specifically when undefined (not 0 -
-    an explicit ArcGap of 0 is a real, different value meaning "no spread").
+    """Parses every <Projectile id="N"> child of a weapon/enemy <Object>; `id`
+    selects which projectile a SERVERPLAYERSHOOT/ENEMYSHOOT packet refers to
+    (default 0). RateOfFire/NumProjectiles/ArcGap live on the owning <Object>,
+    not the <Projectile> itself (confirmed vs real weapon XML), so they're
+    read once and duplicated onto each result. ArcGap defaults to 11.25 when
+    undefined - an explicit 0 is a real "no spread" value, not the same thing.
     """
     rateOfFire = _parseNumber(elem.findtext("RateOfFire"))
     rateOfFire = rateOfFire if rateOfFire is not None else 1.0
@@ -196,13 +157,9 @@ def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
         lifetime = _parseNumber(projElem.findtext("LifetimeMS"))
         if objectIdElem is None or not objectIdElem.text or speed is None or lifetime is None:
             continue  # can't simulate flight without these - skip this projectile
-        # Raw XML <Speed> is 10x true tiles/second - confirmed by cross-
-        # checking two of RealmEye's own cited example values against this
-        # project's raw extracted XML: Tezcacoatl's Tail (documented 22.5
-        # t/s) is stored as 225.0, Lumiaire (documented 5 t/s) as 50.0 -
-        # exactly 10x in both cases. Divided here so every ParsedProjectile.
-        # speed downstream (ProjectileDefinition, Projectile.posAt) is
-        # already real tiles/second, matching what its name claims.
+        # Raw XML <Speed> is 10x true tiles/second (confirmed against
+        # RealmEye's documented values) - divided so .speed is real
+        # tiles/second downstream.
         speed /= 10.0
 
         try:

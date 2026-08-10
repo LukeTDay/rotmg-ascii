@@ -1,33 +1,21 @@
 """
 Every usable glyph (ASCII 32-126 + CP437 extended 128-255) x the native
-8-color palette (normal + bold = 16 columns), and nothing else.
+8-color palette (normal + bold = 16 columns).
 
-Unlike cp437_full_charset_color_test.py, this never calls curses.init_color()
--- it only uses curses.COLOR_* + curses.init_pair(), the same "no RGB remap"
-approach standard16_test.py already confirmed renders identically on Windows
-and Linux. That sidesteps the whole class of bug the other script hit: its
-truecolor gradient columns were requesting custom color slots starting at 1,
-which collided with curses.COLOR_RED..COLOR_WHITE (also just the integers
-1-7) and silently overwrote the named-color/default-text registers on Linux
-(confirmed working init_color there) while mostly no-opping on Windows
-(confirmed broken init_color there, per CLAUDE.md). This script has no
-custom slots to collide with, so there's nothing to corrupt.
-
-It's also a much lighter pad (16 columns instead of 42) -- less per-refresh
-SGR churn, so scrolling should feel noticeably less laggy than the full
-gradient version.
+Unlike cp437_full_charset_color_test.py, this only uses curses.COLOR_* +
+curses.init_pair(), never init_color() -- avoids that script's bug where
+custom color slots starting at 1 collided with curses.COLOR_RED..WHITE
+(also 1-7) and corrupted default text color on Linux.
 
 Controls: arrow keys / hjkl to scroll, q or Esc to quit.
-
 Run: python cp437_full_charset_16color_test.py
 """
 
 import curses
 import locale
 
-# Bytes 0x00-0x1F and 0x7F decode to literal ASCII control characters under
-# Python's cp437 codec (not the historical CP437 graphic glyphs), so they're
-# excluded -- see cp437_extended_test.py.
+# 0x00-0x1F and 0x7F decode to literal ASCII control chars under cp437, not
+# the historical CP437 graphic glyphs, so they're excluded.
 CHAR_CODES = list(range(0x20, 0x7F)) + list(range(0x80, 0x100))
 
 NAMED_COLORS = [
@@ -46,9 +34,7 @@ LABEL_WIDTH = 8
 
 
 def build_columns():
-    """One curses pair per named color (fg=color, bg=black), reused for both
-    the normal and bold column so we only spend 8 of the terminal's color
-    pairs total."""
+    """One curses pair per named color, reused for both the normal and bold column."""
     columns = []
     for i, (_name, color, initial) in enumerate(NAMED_COLORS, start=1):
         curses.init_pair(i, color, curses.COLOR_BLACK)

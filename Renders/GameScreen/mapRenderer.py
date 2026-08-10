@@ -14,33 +14,20 @@ from Networking.Ticker import Ticker
 
 from Renders.GameScreen.uiPanel import PANEL_WIDTH_FRACTION
 
-# A monospace terminal character cell is roughly this many times taller than
-# it is wide (a common approximation - most terminal fonts are close to a
-# 1:2 width:height ratio). Without compensating for this, a world tile drawn
-# as an NxN block of character cells looks visually taller than it is wide,
-# so equal X/Y world distances look uneven on screen. Compensated for by
-# using twice as many character columns as rows per tile (scaleX vs scaleY
-# below) rather than a single uniform scale.
+# Terminal character cells are ~2x taller than wide; scaleX vs scaleY uses
+# this ratio so a world tile renders visually square, not stretched.
 CHAR_ASPECT_RATIO = 2.0
 
 
-MIN_SCALE_Y = 1  # smallest per-tile block size - growing the view radius (more world) takes priority over this
+MIN_SCALE_Y = 1  # Smallest per-tile size; growing view radius takes priority over this.
 
 
 def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
-    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius). `scaleX`/
-    `scaleY` are how many character columns/rows each world tile is drawn as
-    (nearest-neighbor block replication, scaleX ~= scaleY * CHAR_ASPECT_RATIO
-    so a world-square actually looks square on screen).
+    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius).
 
-    A bigger/zoomed-out terminal (smaller font, so more rows/cols report as
-    available) shows more of the world first: `viewRadius` (world tiles
-    rendered on each side of the player) grows to fill the available space
-    at the smallest per-tile size, capped at VIEW_RADIUS_TILES. Only once
-    that cap is reached does any further leftover space go toward
-    magnifying each tile's block size instead - the reverse of growing
-    scale at a fixed radius, which just drew the same window bigger without
-    ever revealing more world.
+    A bigger terminal grows `viewRadius` (more world visible) first, up to
+    VIEW_RADIUS_TILES; only once that cap is hit does leftover space go
+    toward magnifying each tile's block size instead.
     """
     maxY, maxX = stdscr.getmaxyx()
     mapAreaRows = maxY
@@ -62,10 +49,9 @@ def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
 
 
 def screenToWorld(stdscr: curses.window, ticker: Ticker, screenRow: int, screenCol: int) -> Optional[Tuple[float, float]]:
-    """Inverse of _drawMap's tile placement: converts a mouse event's screen
-    row/col (curses.getmouse()'s y/x - the game pad has no scroll offset, see
-    CLAUDE.local.md) into a world (x, y) position. Returns None if the
-    position falls outside the map area (e.g. it's over the HUD instead)."""
+    """Inverse of _drawMap's tile placement: converts a mouse screen row/col
+    (the game pad has no scroll offset) into a world (x, y) position. Returns
+    None if outside the map area."""
     if ticker.pos is None:
         return None
     scaleX, scaleY, mapAreaRows, mapAreaCols, _ = computeScale(stdscr)
@@ -98,30 +84,22 @@ def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, map
             try:
                 pad.addstr(row, colStart, cell.char * (colEnd - colStart), attr)
             except curses.error:
-                # Block writes near the pad's edge are more failure-prone
-                # than single-line text - drop the write, not the frame.
+                # Edge writes can fail; drop the write, not the frame.
                 pass
 
 
 def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, player: PlayerData,
               projectiles: ProjectileStore, listener: Listener, ticker: Ticker, ctx: Context) -> None:
-    """Draws one frame of the map onto the already-allocated game-screen pad -
-    does NOT blit it (gameScreen.py's _connectedLoop draws the panel frame
-    and inventory panel on top of this same pad afterward, then blits once
-    at the very end - see uiPanel.drawPanelFrame/inventoryPanel.drawBars/
-    drawInventoryGrid). Called once per loop iteration from _connectedLoop,
-    after that iteration's queue-drain/state-apply/prune - so the frame
-    always reflects the freshest state.
+    """Draws one frame of the map onto the game-screen pad - does NOT blit it
+    (gameScreen.py's _connectedLoop draws the panel frame and inventory
+    panel on top of this same pad afterward, then blits once at the end -
+    see uiPanel.drawPanelFrame/inventoryPanel.drawBars/drawInventoryGrid).
 
-    Centers on `ticker.pos`, not `player.pos` - `player.pos` only updates
-    when a server NEWTICK arrives, so the render loop would just be
-    redrawing the same stale position between ticks no matter how fast it
-    runs. `ticker.pos` is dead-reckoned locally on Ticker's own steady clock
-    (see Networking/Ticker.py), giving genuinely smooth motion between
-    server ticks. The local player's own GameState entry is nudged to match
-    for the same reason - otherwise the '@' glyph (placed via that entry's
-    tracked position) would visibly drift off-center between ticks even
-    though the camera itself is smoothly centered.
+    Centers on `ticker.pos`, not `player.pos`: `player.pos` only updates on
+    a server NEWTICK, so centering on it would redraw the same stale spot
+    between ticks. `ticker.pos` is dead-reckoned locally for smooth motion.
+    The local player's GameState entry is nudged to match for the same
+    reason, so the '@' glyph doesn't drift off-center between ticks.
     """
     if ticker.pos is None:
         return  # nothing to center on before the first UPDATE/GOTO arrives
@@ -134,11 +112,8 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     friendsList = ctx.get("FRIENDSLIST", set())
     guildMembers = ctx.get("GUILDMEMBERS", set())
     lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
-    # Both owned by ctx (not recreated per-frame): `RNG`'s state keeps
-    # advancing across the whole session instead of restarting every frame,
-    # and `TILE_CHAR_CACHE` remembers each multi-glyph tile's already-picked
-    # variant so it stays put instead of re-rolling (and visibly flickering
-    # between variants) on every redraw - see TileManager._pickChar.
+    # Owned by ctx, not recreated per-frame: TILE_CHAR_CACHE remembers each
+    # multi-glyph tile's picked variant so it doesn't re-roll every redraw.
     rng = ctx.setdefault("RNG", random.Random())
     charCache = ctx.setdefault("TILE_CHAR_CACHE", {})
 

@@ -15,11 +15,9 @@ HEADERSIZE = 5
 
 
 class Listener:
-    """Owns the read side of the game socket. Decodes every packet inline and,
-    for the handful of packet types that need a fast protocol-level reply, sends
-    that reply immediately from this thread (via the outbound queue) instead of
-    waiting on the render loop - that's the anti-lag rule the server's ack
-    timeouts require."""
+    """Owns the read side of the game socket. Decodes each packet inline and, for
+    types needing a fast reply, sends it immediately from this thread (via the
+    outbound queue) rather than waiting on the render loop, per the server's ack timeouts."""
 
     def __init__(
         self,
@@ -96,11 +94,8 @@ class Listener:
                 f"RECONNECT received - moving to {packet.name!r} "
                 f"(host={packet.host!r} port={packet.port} gameId={packet.gameId})"
             )
-            # No fast protocol-level ack needed - falls through to the
-            # universal incomingQueue.put() at the bottom like every other
-            # packet type. The actual socket teardown/reopen happens in the
-            # renderer (gameScreen._handshake/_connectedLoop), since this
-            # thread can't cleanly join/replace itself mid-recv().
+            # Falls through to the universal incomingQueue.put() below - socket teardown/reopen
+            # happens in the renderer, since this thread can't join/replace itself mid-recv().
         elif packetType == "PING":
             pong = PacketHelper.createPacket("PONG")
             pong.serial = packet.serial

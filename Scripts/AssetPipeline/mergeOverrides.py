@@ -1,23 +1,14 @@
 """
-Merges hand-curated overrides on top of the auto-derived render info, and
-writes the final `Resources/renderMap.json`.
+Merges hand-curated overrides onto the auto-derived render info and writes
+the final `Resources/renderMap.json`.
 
-Follows the same tracked-template / gitignored-live-file split as
-`Credentials/account_credentials.json` + `.jsonEXAMPLE` (this repo's
-existing convention, see CLAUDE.md): `renderMapOverrides.jsonEXAMPLE` ships
-real example overrides and is tracked; `renderMapOverrides.json` is the
-file this module actually reads, gitignored (covered by the repo's blanket
-`*.json` rule), and not auto-created - copy the example to activate it.
-That way a curated override (e.g. giving loot bags a `$` instead of the
-default `*`) can ship in the repo without any risk of someone's local
-override edits getting committed by accident.
+Same tracked-template/gitignored-live-file split as
+`Credentials/account_credentials.json` (see CLAUDE.md):
+`renderMapOverrides.jsonEXAMPLE` is tracked; `renderMapOverrides.json` is
+gitignored and not auto-created - copy the example to activate it.
 
-An override entry is merged **per-field**, not swapped in wholesale: it's
-shallow-merged on top of the auto-generated entry for that id (or used
-as-is if the id has no auto-generated entry at all). That means a hand
-override only needs to specify the fields it's actually changing - e.g.
-just `chars` to reassign a glyph - without having to also copy over the
-`name`/`color` it isn't touching.
+Overrides are merged per-field (shallow merge onto the auto-generated
+entry), so an override only needs to specify what it's changing.
 """
 
 import json

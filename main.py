@@ -68,8 +68,7 @@ if __name__ == "__main__":
     try:
         curses.wrapper(main, debugger)
     except Exception:
-        # curses.wrapper already restored the terminal by this point, so it's
-        # safe to print straight to the now-normal stdout/stderr.
+        # curses.wrapper already restored the terminal, so plain stdout/stderr printing is safe here.
         debugger.exception("Unhandled exception escaped curses.wrapper")
         traceback.print_exc()
         debugger.stop()
