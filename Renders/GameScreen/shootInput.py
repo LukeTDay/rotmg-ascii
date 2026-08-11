@@ -8,19 +8,14 @@ from typing import Dict, List, Optional, Tuple
 import Networking.PacketHelper as PacketHelper
 from Constants.StatusEffects import BERSERK, DAZED
 from Models.ConditionEffect import hasEffect
-from Models.GameState import GameState
 from Models.PlayerData import PlayerData
 from Models.ProjectileStore import ProjectileStore
 from Networking.Ticker import Ticker
 from Renders.GameScreen.mapRenderer import screenToWorld
-from Utils.json.objectNameLoader import objectRenderInfo
 from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks, wavyParams
 
 # Confirmed unused elsewhere in the app.
 _AUTOFIRE_TOGGLE_KEYS = (ord("f"), ord("F"))
-
-# Soft-aim snap radius, in world tiles.
-_ENEMY_SNAP_RADIUS_TILES = 1.0
 
 # RotMG's DEX-based attack-frequency formula (attacks/ms), confirmed against
 # RealmEye's docs. DAZED clamps to _MIN before RateOfFire; BERSERK is a 1.5x
@@ -70,26 +65,8 @@ def _attackPeriodMs(player: PlayerData, rateOfFire: float) -> float:
     return 1 / freq
 
 
-def _resolveAimPoint(state: GameState, mouseWorld: Tuple[float, float]) -> Tuple[float, float]:
-    """Snaps to the nearest enemy within _ENEMY_SNAP_RADIUS_TILES, else the raw mouse position."""
-    mouseX, mouseY = mouseWorld
-    now = time.time()
-    nearestPos: Optional[Tuple[float, float]] = None
-    nearestDist = _ENEMY_SNAP_RADIUS_TILES
-    for obj in state.objects.values():
-        info = objectRenderInfo(obj.objectType)
-        if info is None or not info.isEnemy:
-            continue
-        pos = obj.renderPos(now)
-        dist = math.hypot(pos.x - mouseX, pos.y - mouseY)
-        if dist <= nearestDist:
-            nearestDist = dist
-            nearestPos = (pos.x, pos.y)
-    return nearestPos if nearestPos is not None else mouseWorld
-
-
 def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, player: PlayerData,
-                      outgoingQueue: "queue.Queue", state: GameState, shootState: AutoFireState,
+                      outgoingQueue: "queue.Queue", shootState: AutoFireState,
                       moveDirection: Optional[Tuple[float, float]], debugger, projectileMap,
                       projectiles: ProjectileStore,
                       mouseEvent: Optional[Tuple[int, int, int]]) -> None:
@@ -168,7 +145,7 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
         return
 
     if shootState.lastMouseWorld is not None:
-        targetX, targetY = _resolveAimPoint(state, shootState.lastMouseWorld)
+        targetX, targetY = shootState.lastMouseWorld
     else:
         dx, dy = shootState.lastMoveDirection
         targetX, targetY = ticker.pos.x + dx, ticker.pos.y + dy

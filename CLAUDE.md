@@ -159,7 +159,6 @@ The actual live-gameplay screen — by far the most involved part of the app.
 - **`shootInput.py`** — mouse aiming + auto-fire.
   - `AutoFireState` — small per-connection dataclass (`autoFire`, `lastShotTime`, `nextShotId`, `lastMouseWorld`, `lastMoveDirection`).
   - `_attackPeriodMs(player, rateOfFire)` — RotMG's real DEX-based attack-frequency formula, condition-adjusted (`DAZED` clamps to slowest, `BERSERK` multiplies by 1.5).
-  - `_resolveAimPoint(state, mouseWorld)` — "soft aim": snaps to the nearest enemy within 1 tile of the mouse's world position, else aims at the raw mouse position.
   - `handleShootInput(...)` — toggles auto-fire, tracks mouse-aim position, and while auto-fire is on and off cooldown, builds one `PLAYERSHOOT` packet **per projectile** in the weapon's fan (matching real client behavior confirmed via packet capture) and spawns each shot into `ProjectileStore` immediately (client-side prediction) rather than waiting for the server to echo it back.
 
 ---

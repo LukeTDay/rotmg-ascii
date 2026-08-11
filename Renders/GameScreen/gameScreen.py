@@ -395,7 +395,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         movementMs = (time.time() - movementStart) * 1000
 
         shootStart = time.time()
-        handleShootInput(keys, stdscr, ticker, player, outgoingQueue, state, shootState, moveDirection, debugger,
+        handleShootInput(keys, stdscr, ticker, player, outgoingQueue, shootState, moveDirection, debugger,
                           projectileMap, projectiles, mouseEvent)
         shootMs = (time.time() - shootStart) * 1000
 
