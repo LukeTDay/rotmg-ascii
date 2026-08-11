@@ -46,3 +46,6 @@ FILL_RED = 18
 FILL_BLUE = 19
 FILL_YELLOW = 20
 FILL_WHITE = 21
+
+# Selected-account highlight while in account-removal mode - red instead of the normal reverse-video white.
+ACCOUNT_REMOVE_SELECTED = 22

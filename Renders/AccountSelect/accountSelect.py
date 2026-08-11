@@ -1,10 +1,11 @@
 from Constants.Screen import Screen
+from Constants import ColorPairs
 from Utils.json.accCredLoader import credential_loader
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText, figletLineCount
 from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
 
-import curses, json
+import curses, json, os, tempfile
 
 ROWS_PER_SLOT = 2  # 1 text row + 1 blank spacer row
 
@@ -45,6 +46,7 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
     selected = 0
     scrollOffset = 0
     selectionChanged = False
+    removeMode = False
 
     while True:
         pad.move(0,0)
@@ -52,7 +54,9 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         drawBackgroundTexture(stdscr, pad, ctx, forceRegen=selectionChanged)
 
         height,width = stdscr.getmaxyx()
-        entryCount = len(storedAccounts) + 1  # + "Enter New Account Information"
+        newAccountIndex = len(storedAccounts)
+        toggleIndex = len(storedAccounts) + 1
+        entryCount = len(storedAccounts) + 2  # + "Enter New Account Information" + remove/select toggle
         visibleRows = max(1, (height - headerHeight) // ROWS_PER_SLOT)
 
         if selected < scrollOffset:
@@ -67,16 +71,26 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         y = drawCenteredBanner(stdscr, pad, y, "Select an account")
         y += 1
 
-        labels = [account["alias"] for account in storedAccounts] + ["Enter New Account Information"]
+        labels = [account["alias"] for account in storedAccounts] + [
+            "Enter New Account Information",
+            "Select Account" if removeMode else "Remove Account",
+        ]
         index = 0
         for label in labels[scrollOffset : scrollOffset + visibleRows]:
             actualIndex = scrollOffset + index
-            attr = curses.A_REVERSE if actualIndex == selected else curses.A_NORMAL
+            if actualIndex == selected:
+                if removeMode and actualIndex < newAccountIndex:
+                    attr = curses.color_pair(ColorPairs.ACCOUNT_REMOVE_SELECTED)
+                else:
+                    attr = curses.A_REVERSE
+            else:
+                attr = curses.A_NORMAL
             y = drawCenteredText(stdscr, pad, y, label, attr)
             y += 1
             index += 1
 
-        y = drawCenteredText(stdscr, pad, y, "Navigate to an account and press 'Enter'")
+        prompt = "Navigate to an account and press 'Enter' to remove it" if removeMode else "Navigate to an account and press 'Enter'"
+        y = drawCenteredText(stdscr, pad, y, prompt)
         determineRefreshWindow(stdscr, pad, y)
         key = pad.getch()
 
@@ -90,8 +104,22 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         selectionChanged = selected != prevSelected
 
         if key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
-            if selected == len(storedAccounts):
+            if selected == toggleIndex:
+                removeMode = not removeMode
+                selected = 0
+                selectionChanged = True
+            elif selected == newAccountIndex:
                 return Screen.enterAccountInfo
-            ctx["account"] = storedAccounts[selected]
-            return Screen.login
+            elif removeMode:
+                storedAccounts.pop(selected)
+                tempLoc = tempfile.NamedTemporaryFile(mode="w", dir="Credentials/", delete=False, encoding="utf-8")
+                json.dump(storedAccounts, tempLoc, indent=4)
+                tempLoc.close()
+                os.replace(tempLoc.name, "Credentials/account_credentials.json")
+                removeMode = False
+                selected = 0
+                selectionChanged = True
+            else:
+                ctx["account"] = storedAccounts[selected]
+                return Screen.login
 
