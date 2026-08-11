@@ -3,8 +3,9 @@ import math
 from typing import Optional, Tuple
 
 from Constants import ColorPairs
+from Constants.ItemGlyphs import resolveEquipmentChar, resolvePotionChar
 from Models.PlayerData import PlayerData
-from Renders.GameScreen.uiPanel import PanelLayout, centeredCol, drawGridDividers, evenlySpacedRows
+from Renders.GameScreen.uiPanel import PanelLayout, drawGridDividers, evenlySpacedRows
 from Utils.json.objectNameLoader import objectRenderInfo
 
 # Same bar look as the HUD this replaced (mapRenderer.py's old
@@ -114,35 +115,38 @@ def _gridRowStartAndStride(layout: PanelLayout, rowCount: int) -> Tuple[int, int
 
 def drawBars(pad: curses.window, layout: PanelLayout, player: PlayerData) -> None:
     """Anchors the HP/MP/(XP-or-Fame) bars to the top of the panel's middle
-    section, centered horizontally within the panel's width - relocated
-    from mapRenderer.py's old _drawHud (which anchored to a fixed 24-column
-    right-side strip, flush left; the whole right side is the panel now, and
-    a fixed-width bar left-justified in a much wider area no longer reads as
-    centered). Below level 20, shows XP progress (WHITE bar, player.xp/
-    player.nextLevelXp) instead of Fame, since XP is the more relevant
-    "progress" stat while still leveling. At/after level 20 XP no longer
-    increases, so this falls back to the old Fame solid-bar behavior
+    section, stretched to the panel's FULL width rather than a small fixed-
+    width centered bar - relocated from mapRenderer.py's old _drawHud (which
+    anchored to a fixed 24-column right-side strip; the whole right side is
+    the panel now, so the bars use all of it). Fame/XP spans the entire
+    panel width edge to edge; HP and MP share the row below it (not two
+    separate rows) with HP stretched across the left half and MP across the
+    right half, per user request. Below level 20, shows XP progress (WHITE
+    bar, player.xp/player.nextLevelXp) instead of Fame, since XP is the more
+    relevant "progress" stat while still leveling. At/after level 20 XP no
+    longer increases, so this falls back to the old Fame solid-bar behavior
     unchanged: nextClassQuestFame is -1 whenever a class has no further
-    quest reward, so Fame can't reliably be used as a proportional bar's
-    max either - same reasoning the original _drawHud comment gave.
+    quest reward, so Fame can't reliably be used as a proportional bar's max
+    either - same reasoning the original _drawHud comment gave.
     """
     row = _contentStartRow(layout)
-    width = min(BAR_WIDTH, max(1, layout.panelWidth))
-    col = centeredCol(layout, width)
+    col = layout.panelStartCol
+    fullWidth = max(1, layout.panelWidth)
 
     if player.level < MAX_LEVEL:
         _drawBar(pad, row + _BAR_ROW_OFFSETS[0], col, "XP", player.xp, player.nextLevelXp,
-                 ColorPairs.FILL_WHITE, ColorPairs.MAP_WHITE, width)
+                 ColorPairs.FILL_WHITE, ColorPairs.MAP_WHITE, fullWidth)
     else:
-        _drawSolidBar(pad, row + _BAR_ROW_OFFSETS[0], col, player.fame, ColorPairs.FILL_YELLOW, width)
+        _drawSolidBar(pad, row + _BAR_ROW_OFFSETS[0], col, player.fame, ColorPairs.FILL_YELLOW, fullWidth)
 
-    # HP and MP share one row (not two, like the old HUD) - half-width each,
-    # side by side - to leave more vertical room for the inventory grid
-    # below, especially now that a character can have up to 16 backpack
-    # slots (7 grid rows) instead of the old 8-slot cap.
+    # HP and MP share one row (not two, like the old HUD) - HP stretched
+    # across the left half, MP across the right half - to leave more
+    # vertical room for the inventory grid below, especially now that a
+    # character can have up to 16 backpack slots (7 grid rows) instead of
+    # the old 8-slot cap.
     hpMpRow = row + _BAR_ROW_OFFSETS[1]
-    hpWidth = max(1, width // 2)
-    mpWidth = max(1, width - hpWidth)
+    hpWidth = max(1, fullWidth // 2)
+    mpWidth = max(1, fullWidth - hpWidth)
     _drawBar(pad, hpMpRow, col, "HP", player.hp, player.maxHp,
              ColorPairs.FILL_RED, ColorPairs.MAP_RED, hpWidth)
     _drawBar(pad, hpMpRow, col + hpWidth, "MP", player.mp, player.maxMp,
@@ -155,11 +159,27 @@ def _cellContent(objectType: int, cellWidth: int) -> Tuple[str, int]:
     info = objectRenderInfo(objectType)
     if info is None:
         return "?".center(cellWidth), ColorPairs.MAP_WHITE
+
+    weaponLabel = getattr(info, "weaponLabel", "") or ""
+
+    # Potions get their own char/color (h/m/c, red/blue/magenta) - overrides
+    # the usual tier-based coloring.
+    potion = resolvePotionChar(info.name or "", weaponLabel)
+    if potion is not None:
+        char, colorName = potion
+        pairNum = ColorPairs.MAP_COLOR_TO_PAIR.get(colorName, ColorPairs.MAP_WHITE)
+        return char.center(cellWidth), pairNum
+
     tier = getattr(info, "bagColorTier", "WHITE")
     pairNum = ColorPairs.MAP_COLOR_TO_PAIR.get(tier, ColorPairs.MAP_WHITE)
+
+    equipChar = resolveEquipmentChar(weaponLabel)
+    if equipChar is not None:
+        return equipChar.center(cellWidth), pairNum
+
+    # Unrecognized category - fall back to a name abbreviation.
     name = info.name.upper() if info.name else "?"
-    label = name[:cellWidth].center(cellWidth)
-    return label, pairNum
+    return name[:cellWidth].center(cellWidth), pairNum
 
 
 def drawInventoryGrid(pad: curses.window, layout: PanelLayout, player: PlayerData) -> None:

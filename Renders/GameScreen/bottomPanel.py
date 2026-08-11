@@ -1,4 +1,5 @@
 import curses
+import math
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Set, Tuple
@@ -13,8 +14,11 @@ from Renders.GameScreen.inventoryPanel import CELL_GAP, _cellContent, _cellWidth
 from Renders.GameScreen.uiPanel import PanelLayout, centeredCol, drawGridDividers, evenlySpacedRows
 from Utils.json.objectNameLoader import objectRenderInfo
 
-# How close (world tiles) a portal/loot bag has to be to ticker.pos to show
-# up in the bottom panel at all - hand-tunable, not derived from anything.
+# How close (world tiles) a loot bag has to be to ticker.pos to show up in
+# the bottom panel at all - hand-tunable, not derived from anything. Portals
+# use exact same-tile detection instead (see _isOnSameTile) - real RotMG
+# portal use requires actually standing on the portal, not just being near
+# it, per user request.
 NEARBY_RANGE_TILES = 2.0
 
 _BAG_GRID_COLS = 4
@@ -49,6 +53,15 @@ class ActiveWidget:
     cycleIndex: int = 0
 
 
+def _isOnSameTile(a, b) -> bool:
+    """Whole-tile equality (math.floor per axis), not a distance threshold -
+    a Euclidean distance check (even a tight one) doesn't reliably mean "same
+    tile", since two points near opposite corners of one tile can be up to
+    sqrt(2) apart while two points in adjacent tiles can be much closer than
+    that."""
+    return math.floor(a.x) == math.floor(b.x) and math.floor(a.y) == math.floor(b.y)
+
+
 def _nearbyCandidates(state: GameState, ticker: Ticker, listenerObjectId: int, friendsList: Set[str],
                        guildMembers: Set[str], lockedAccounts: Set[str], tier: Tier) -> List[GameObject]:
     if ticker.pos is None:
@@ -61,9 +74,15 @@ def _nearbyCandidates(state: GameState, ticker: Ticker, listenerObjectId: int, f
         if objTier != tier:
             continue
         pos = obj.pos if obj.objectId == listenerObjectId else obj.renderPos(now)
-        # WorldPosData.dist's exact calling convention - same as
-        # Networking/Ticker.py's own movement-arrival check.
-        if ticker.pos.dist(pos) <= NEARBY_RANGE_TILES:
+        if tier == Tier.PORTAL:
+            # Real RotMG portal use requires actually standing on the portal,
+            # not just being near it - per user request.
+            inRange = _isOnSameTile(ticker.pos, pos)
+        else:
+            # WorldPosData.dist's exact calling convention - same as
+            # Networking/Ticker.py's own movement-arrival check.
+            inRange = ticker.pos.dist(pos) <= NEARBY_RANGE_TILES
+        if inRange:
             result.append(obj)
     result.sort(key=lambda o: o.objectId)
     return result
