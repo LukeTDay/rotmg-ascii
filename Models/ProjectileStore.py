@@ -10,7 +10,8 @@ class Projectile:
     def __init__(self, bulletId: int, ownerId: int, shotIndex: int, startingPos: WorldPosData, angle: float,
                  speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None,
                  visualObjectType: Optional[int] = None, multiHit: bool = False, armorPiercing: bool = False,
-                 minDamage: Optional[int] = None, maxDamage: Optional[int] = None):
+                 minDamage: Optional[int] = None, maxDamage: Optional[int] = None,
+                 amplitude: float = 0.0, frequency: float = 0.0):
         self.bulletId = bulletId
         self.ownerId = ownerId
         self.shotIndex = shotIndex
@@ -38,6 +39,17 @@ class Projectile:
         # Bypasses the target's defense entirely for kill-guess purposes -
         # see Renders/GameScreen/hitDetection.py's damage-after-defense estimate.
         self.armorPiercing = armorPiercing
+        # UNVERIFIED best-effort formula - no confirmed source in this repo or
+        # either reference bot project (neither implements wavy motion at
+        # all; this was straight-line-only before). Amplitude/Frequency come
+        # from the <Projectile>'s raw extras (e.g. Makakoyumi's lightning:
+        # Amplitude=0.7, Frequency=0.75) - applied in posAt() as a sine
+        # offset perpendicular to the straight-line path, phased by distance
+        # traveled (not elapsed time, so the wavelength doesn't change with
+        # projectile speed). 0/0 (the default) reduces to plain straight-line
+        # motion, unchanged for every non-wavy projectile.
+        self.amplitude = amplitude
+        self.frequency = frequency
         self.hitTargetIds: Set[int] = set()
 
     def isExpired(self, now: Optional[float] = None) -> bool:
@@ -47,10 +59,15 @@ class Projectile:
     def posAt(self, now: Optional[float] = None) -> WorldPosData:
         now = time.time() if now is None else now
         dist = self.speed * (now - self.spawnTime)
-        return WorldPosData(
-            self.startingPos.x + math.cos(self.angle) * dist,
-            self.startingPos.y + math.sin(self.angle) * dist,
-        )
+        x = self.startingPos.x + math.cos(self.angle) * dist
+        y = self.startingPos.y + math.sin(self.angle) * dist
+        if self.amplitude and self.frequency:
+            offset = self.amplitude * math.sin(self.frequency * dist)
+            # Perpendicular to the flight direction (angle + 90deg), not
+            # world-axis-aligned, so the wave rides along the shot's path.
+            x -= math.sin(self.angle) * offset
+            y += math.cos(self.angle) * offset
+        return WorldPosData(x, y)
 
 
 class ProjectileStore:
@@ -73,11 +90,12 @@ class ProjectileStore:
     def spawn(self, bulletId: int, ownerId: int, startingPos: WorldPosData, angle: float,
               speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None, shotIndex: int = 0,
               visualObjectType: Optional[int] = None, multiHit: bool = False, armorPiercing: bool = False,
-              minDamage: Optional[int] = None, maxDamage: Optional[int] = None) -> None:
+              minDamage: Optional[int] = None, maxDamage: Optional[int] = None,
+              amplitude: float = 0.0, frequency: float = 0.0) -> None:
         key = (ownerId, bulletId, shotIndex)
         self.projectiles[key] = Projectile(
             bulletId, ownerId, shotIndex, startingPos, angle, speed, damage, lifetimeMS, size, visualObjectType,
-            multiHit, armorPiercing, minDamage, maxDamage,
+            multiHit, armorPiercing, minDamage, maxDamage, amplitude, frequency,
         )
 
     def remove(self, ownerId: int, bulletId: int, shotIndex: int = 0) -> None:

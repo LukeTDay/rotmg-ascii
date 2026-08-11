@@ -110,6 +110,22 @@ def getSubattacks(projectileMap: Dict[int, OwnerEntry], ownerObjectType: int) ->
     return entry.subattacks if entry is not None else []
 
 
+def wavyParams(definition: ProjectileDefinition) -> "tuple[float, float]":
+    """(amplitude, frequency) for wavy projectile motion - see
+    Models/ProjectileStore.Projectile.posAt(). Both 0.0 (no offset, plain
+    straight-line motion) for the vast majority of projectiles that don't
+    carry these extras at all."""
+    try:
+        amplitude = float(definition.extras.get("Amplitude", 0.0))
+    except (TypeError, ValueError):
+        amplitude = 0.0
+    try:
+        frequency = float(definition.extras.get("Frequency", 0.0))
+    except (TypeError, ValueError):
+        frequency = 0.0
+    return amplitude, frequency
+
+
 def resolveShotProjectileIds(
     projectileMap: Dict[int, OwnerEntry], ownerObjectType: int, numProjectiles: int
 ) -> List[int]:

@@ -14,13 +14,13 @@ from Networking.Ticker import computeSpeed
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen import bottomPanel, inventoryPanel, itemInfoPeek, uiPanel
-from Renders.GameScreen.hitDetection import checkProjectileHits
+from Renders.GameScreen.hitDetection import HitTracker, checkProjectileHits
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
 from Renders.GameScreen.panelInput import handlePanelInput
 from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
 
-from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds
+from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds, wavyParams
 
 import curses, gc, threading, queue, time
 
@@ -224,6 +224,7 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
         definition = getProjectileDefinition(projectileMap, ownerObjectType, projectileId)
         if definition is None:
             continue
+        amplitude, frequency = wavyParams(definition)
         store.spawn(
             bulletId=bulletId,
             ownerId=ownerId,
@@ -237,6 +238,8 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
             visualObjectType=definition.visualObjectType,
             multiHit=definition.multiHit,
             armorPiercing=definition.armorPiercing,
+            amplitude=amplitude,
+            frequency=frequency,
             # No minDamage/maxDamage here - `damage` above is already the
             # server's own authoritative value for this echoed shot (from
             # SERVERPLAYERSHOOT/ENEMYSHOOT), better than a fresh local roll.
@@ -282,6 +285,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
     projectiles = ProjectileStore()
     projectileMap = projectileMapLoader()
     shootState = AutoFireState()
+    hitTracker = HitTracker()
 
     # See GC_COLLECT_INTERVAL_SECONDS above - confirmed via debug.txt that
     # automatic cyclic GC was the source of the periodic drawFrame spikes.
@@ -332,6 +336,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             event.ownerId, event.bulletId, event.startingPos,
                             event.angle, event.angleInc, numShots, event.damage,
                         )
+                elif event.type == "DAMAGE":
+                    hitTracker.recordDamage(event.bulletId, event.targetId, event.damageAmount, event.objectId, debugger)
                 elif event.type == "ACCOUNTLIST":
                     _applyAccountList(ctx, event)
                 elif event.type == "INVRESULT":
@@ -352,7 +358,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             # they converge once CREATESUCCESS/the matching UPDATE lands, but
             # player.objectId's own unset default is 0, not listener's -1.
             nowMs = int(time.time() * 1000) - ticker.connectedTime
-            checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue)
+            checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue, hitTracker, debugger)
+        hitTracker.pruneTimeouts(debugger)
         projectiles.prune()
         queueDrainMs = (time.time() - queueDrainStart) * 1000
 

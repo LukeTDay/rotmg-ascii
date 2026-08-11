@@ -14,7 +14,7 @@ from Models.ProjectileStore import ProjectileStore
 from Networking.Ticker import Ticker
 from Renders.GameScreen.mapRenderer import screenToWorld
 from Utils.json.objectNameLoader import objectRenderInfo
-from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks
+from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks, wavyParams
 
 # Confirmed unused elsewhere in the app.
 _AUTOFIRE_TOGGLE_KEYS = (ord("f"), ord("F"))
@@ -206,6 +206,7 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
             outgoingQueue.put(packet)
 
             if shotDefinition is not None:
+                amplitude, frequency = wavyParams(shotDefinition)
                 projectiles.spawn(
                     bulletId=shootState.nextShotId,
                     ownerId=player.objectId,
@@ -220,6 +221,8 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
                     armorPiercing=shotDefinition.armorPiercing,
                     minDamage=shotDefinition.minDamage,
                     maxDamage=shotDefinition.maxDamage,
+                    amplitude=amplitude,
+                    frequency=frequency,
                 )
 
             shootState.nextShotId = (shootState.nextShotId + 1) % 128

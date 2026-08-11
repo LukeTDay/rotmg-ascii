@@ -1,5 +1,7 @@
 import math
 import time
+from dataclasses import dataclass
+from typing import Dict, Tuple
 
 import Networking.PacketHelper as PacketHelper
 from Constants.StatTypes import StatTypes
@@ -41,6 +43,70 @@ def _estimateDamageDealt(rawDamage: int, defense: int, armorPiercing: bool) -> i
     return max(rawDamage - defense, int(rawDamage * _DEFENSE_FLOOR_FRACTION))
 
 
+@dataclass
+class _PendingHit:
+    bulletId: int
+    targetId: int
+    sentAtMs: float
+    distance: float
+    radius: float
+    enemyObjectType: int
+    enemyName: str
+
+
+class HitTracker:
+    """Diagnostic instrumentation for calibrating the UNVERIFIED
+    _enemyRadiusTiles estimate above: tracks every ENEMYHIT this client
+    sends and matches it against the DAMAGE packet the server should send
+    back (Networking/Packets/Incoming/DamagePacket.py) if it accepted the
+    claim. A confirmed hit (DAMAGE arrives) proves the send-time distance
+    was inside the real hitbox; an unconfirmed one (no DAMAGE within
+    _CONFIRM_TIMEOUT_MS) proves it wasn't - either way, both get logged with
+    distance/radius so the estimate above can be corrected against real
+    numbers instead of another guess.
+    """
+
+    _CONFIRM_TIMEOUT_MS = 500.0
+
+    def __init__(self):
+        self._pending: Dict[Tuple[int, int], _PendingHit] = {}
+
+    def recordSent(self, bulletId: int, targetId: int, distance: float, radius: float,
+                    enemyObjectType: int, enemyName: str) -> None:
+        self._pending[(bulletId, targetId)] = _PendingHit(
+            bulletId, targetId, time.time() * 1000, distance, radius, enemyObjectType, enemyName
+        )
+
+    def recordDamage(self, bulletId: int, targetId: int, damageAmount: int, objectId: int, debugger) -> None:
+        # Logged unconditionally, matched or not - 0 confirmations out of
+        # hundreds of sends (even near-dead-center ones) means either DAMAGE
+        # never arrives at all, or its bulletId/targetId don't line up with
+        # what ENEMYHIT sent; this line is what tells the two apart. If
+        # nothing with this tag ever shows up, DAMAGE isn't arriving/being
+        # routed here at all - if it does show up but never as CONFIRMED,
+        # the (bulletId, targetId) key doesn't match ENEMYHIT's.
+        debugger.debug(f"DAMAGE received: bulletId={bulletId} targetId={targetId} damage={damageAmount} objectId={objectId}")
+
+        pending = self._pending.pop((bulletId, targetId), None)
+        if pending is None:
+            return  # DAMAGE for a hit we never sent (or already timed out) - not ours to track
+        debugger.debug(
+            f"HIT CONFIRMED: {pending.enemyName} (type={pending.enemyObjectType}) bulletId={bulletId} "
+            f"damage={damageAmount} distanceAtSend={pending.distance:.3f} estimatedRadius={pending.radius:.3f}"
+        )
+
+    def pruneTimeouts(self, debugger) -> None:
+        nowMs = time.time() * 1000
+        expired = [key for key, p in self._pending.items() if nowMs - p.sentAtMs >= self._CONFIRM_TIMEOUT_MS]
+        for key in expired:
+            p = self._pending.pop(key)
+            debugger.warning(
+                f"HIT NOT CONFIRMED (no DAMAGE within {self._CONFIRM_TIMEOUT_MS:.0f}ms): "
+                f"{p.enemyName} (type={p.enemyObjectType}) bulletId={p.bulletId} "
+                f"distanceAtSend={p.distance:.3f} estimatedRadius={p.radius:.3f}"
+            )
+
+
 def _enemyRadiusTiles(obj) -> float:
     info = objectRenderInfo(obj.objectType)
     baseSize = info.baseSize if info is not None else 100
@@ -56,7 +122,7 @@ def _enemyRadiusTiles(obj) -> float:
 
 
 def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId: int,
-                         nowMs: int, outgoingQueue: "object") -> None:
+                         nowMs: int, outgoingQueue: "object", hitTracker: HitTracker, debugger) -> None:
     """Client-side hit detection for the local player's own in-flight shots.
     RotMG expects the shooter's own client to report ENEMYHIT (confirmed via
     MITM capture) - the server has no fine-grained collision of its own to
@@ -70,6 +136,14 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
     fly through). A multiHit (piercing) projectile keeps flying and can hit
     additional enemies later in its lifetime, but never the same enemy twice
     - `Projectile.hitTargetIds` guards that per-shot, not just per-frame.
+
+    Every send is also handed to `hitTracker` (matched against the server's
+    DAMAGE reply by gameScreen.py) - see HitTracker's docstring for why: the
+    hit-radius estimate below is unverified, and bosses in particular
+    (confirmed via Dreadstump the Pirate King's XML - Size=100, no
+    <CustomHitbox> override) can visually dwarf the radius that formula
+    gives them, so tracking confirmed-vs-unconfirmed sends is how to tell
+    whether a given enemy's estimate is actually wrong.
     """
     now = time.time()
     for proj in list(projectiles.projectiles.values()):
@@ -87,7 +161,8 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
 
             enemyPos = obj.renderPos(now)
             dist = math.hypot(pos.x - enemyPos.x, pos.y - enemyPos.y)
-            if dist > _enemyRadiusTiles(obj) + _BULLET_RADIUS_TILES:
+            radius = _enemyRadiusTiles(obj)
+            if dist > radius + _BULLET_RADIUS_TILES:
                 continue
 
             liveHp = obj.stats.get(StatTypes.HPSTAT)
@@ -108,6 +183,11 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
             packet.kill = kill
             packet.id2 = ownerId
             outgoingQueue.put(packet)
+            hitTracker.recordSent(proj.bulletId, obj.objectId, dist, radius, obj.objectType, info.name)
+            debugger.debug(
+                f"ENEMYHIT sent: {info.name} (type={obj.objectType}) bulletId={proj.bulletId} "
+                f"distance={dist:.3f} estimatedRadius={radius:.3f} kill={kill}"
+            )
 
             proj.hitTargetIds.add(obj.objectId)
             hitSomething = True
