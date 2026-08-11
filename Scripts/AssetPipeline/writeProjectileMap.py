@@ -1,7 +1,8 @@
 """
 Writes `Resources/projectileMap.json`: every <Projectile> definition from
-`parseGameXml.py`, keyed by owning weapon/enemy objectType then projectile
-`id` (the slot a SERVERPLAYERSHOOT/ENEMYSHOOT packet references).
+`parseGameXml.py`, keyed by owning weapon/enemy objectType, plus that
+weapon's ordered <Subattack> list (a weapon fires every one of its
+subattacks, each independently timed - see ParsedSubattack's docstring).
 
 Unlike renderMap.json, no derive/override step - straight structural copy,
 since speed/damage/lifetime come directly from XML, not pixel data.
@@ -17,7 +18,7 @@ if _REPO_ROOT not in sys.path:
     # just via `python -m Scripts.AssetPipeline.writeProjectileMap`
     sys.path.insert(0, _REPO_ROOT)
 
-from Scripts.AssetPipeline.parseGameXml import ParsedProjectile
+from Scripts.AssetPipeline.parseGameXml import ParsedProjectile, ParsedSubattack
 
 PROJECTILE_MAP_PATH = Path(__file__).resolve().parents[2] / "Resources" / "projectileMap.json"
 
@@ -46,14 +47,26 @@ def _projectileToDict(proj: ParsedProjectile, nameToId: dict) -> dict:
     }
 
 
+def _subattackToDict(sub: ParsedSubattack) -> dict:
+    return {
+        "projectileId": sub.projectileId,
+        "numProjectiles": sub.numProjectiles,
+        "arcGapDegrees": sub.arcGapDegrees,
+        "rateOfFire": sub.rateOfFire,
+    }
+
+
 def buildProjectileMap(parsed_objects: dict) -> dict:
     """`parsed_objects` is `parseAll()["objects"]` - {entityId: ParsedEntity}."""
     nameToId = {entity.name: entityId for entityId, entity in parsed_objects.items()}
-    result: dict[str, dict[str, dict]] = {}
+    result: dict[str, dict] = {}
     for entityId, entity in parsed_objects.items():
         if not entity.projectiles:
             continue
-        result[str(entityId)] = {str(proj.id): _projectileToDict(proj, nameToId) for proj in entity.projectiles}
+        result[str(entityId)] = {
+            "projectiles": {str(proj.id): _projectileToDict(proj, nameToId) for proj in entity.projectiles},
+            "subattacks": [_subattackToDict(sub) for sub in entity.subattacks],
+        }
     return result
 
 

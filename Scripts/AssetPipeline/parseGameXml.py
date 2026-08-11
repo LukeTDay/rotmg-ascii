@@ -56,12 +56,26 @@ class ParsedProjectile:
     armorPiercing: bool = False
     passesCover: bool = False
     extras: dict[str, str] = field(default_factory=dict)  # raw text of any other child tag, by tag name
-    # Belong to the owning <Object>, not the <Projectile> child (confirmed
-    # vs real weapon XML) - duplicated onto every ParsedProjectile here so
-    # one lookup serves both rendering and outgoing-shot construction.
+    # Belong to the owning <Object>'s matching <Subattack projectileId="N">
+    # (or the flat Object-level tags if there's no Subattack at all) - not
+    # the <Projectile> child itself. Duplicated onto every ParsedProjectile
+    # here so one lookup serves both rendering and outgoing-shot construction.
     rateOfFire: float = 1.0
     numProjectiles: int = 1
     arcGapDegrees: float = 11.25
+
+
+@dataclass
+class ParsedSubattack:
+    """One <Subattack projectileId="N"> block - a weapon fires every one of
+    its subattacks, each independently timed by its own rateOfFire, each
+    firing its own numProjectiles-count fan (spread by its own arcGapDegrees)
+    of its own projectileId. A weapon with no <Subattack> children gets a
+    single synthetic entry built from its flat Object-level tags instead."""
+    projectileId: int
+    numProjectiles: int
+    arcGapDegrees: float
+    rateOfFire: float
 
 
 @dataclass
@@ -70,6 +84,7 @@ class ParsedEntity:
     name: str
     textureRefs: list[tuple[str, int]] = field(default_factory=list)  # (spriteSheetName, index)
     projectiles: list[ParsedProjectile] = field(default_factory=list)
+    subattacks: list[ParsedSubattack] = field(default_factory=list)
     # Object-only flags (Ground keeps defaults) feeding the map renderer's
     # tier hierarchy. HealthBarBoss is the real client's own boss-UI flag,
     # reused here to uppercase a boss's name-derived glyph.
@@ -133,22 +148,64 @@ def _parseNumber(raw: str | None) -> float | None:
         return None
 
 
-def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
+def _parseSubattacks(elem: et.Element, fallbackRateOfFire: float, fallbackNumProjectiles: int,
+                      fallbackArcGapDegrees: float) -> list[ParsedSubattack]:
+    """Parses every <Subattack projectileId="N"> child, in document order. A
+    weapon fires ALL of its subattacks, each on its own independent cooldown
+    (confirmed shape vs real weapon XML - e.g. Golden Bow's center/flanking
+    arrows are two Subattacks with matching rates that happen to fire
+    together; Makakoyumi's two Subattacks have different rates and interleave
+    instead). Falls back to a single synthetic entry from the owning
+    <Object>'s flat tags when there are no <Subattack> children at all (plain
+    melee weapons etc., which never got migrated to the Subattack shape).
+    """
+    subElems = elem.findall("Subattack")
+    if not subElems:
+        return [ParsedSubattack(
+            projectileId=0, numProjectiles=fallbackNumProjectiles,
+            arcGapDegrees=fallbackArcGapDegrees, rateOfFire=fallbackRateOfFire,
+        )]
+
+    subattacks: list[ParsedSubattack] = []
+    for subElem in subElems:
+        try:
+            projectileId = int(subElem.get("projectileId", "0"))
+        except ValueError:
+            projectileId = 0
+
+        numProjectilesRaw = _parseNumber(subElem.findtext("NumProjectiles"))
+        numProjectiles = int(numProjectilesRaw) if numProjectilesRaw is not None else fallbackNumProjectiles
+
+        arcGapDegrees = _parseNumber(subElem.findtext("ArcGap"))
+        arcGapDegrees = arcGapDegrees if arcGapDegrees is not None else fallbackArcGapDegrees
+
+        rateOfFire = _parseNumber(subElem.findtext("RateOfFire"))
+        rateOfFire = rateOfFire if rateOfFire is not None else fallbackRateOfFire
+
+        subattacks.append(ParsedSubattack(
+            projectileId=projectileId, numProjectiles=numProjectiles,
+            arcGapDegrees=arcGapDegrees, rateOfFire=rateOfFire,
+        ))
+    return subattacks
+
+
+def _parseProjectiles(elem: et.Element, subattacks: list[ParsedSubattack],
+                       fallbackRateOfFire: float, fallbackNumProjectiles: int,
+                       fallbackArcGapDegrees: float) -> list[ParsedProjectile]:
     """Parses every <Projectile id="N"> child of a weapon/enemy <Object>; `id`
     selects which projectile a SERVERPLAYERSHOOT/ENEMYSHOOT packet refers to
-    (default 0). RateOfFire/NumProjectiles/ArcGap live on the owning <Object>,
-    not the <Projectile> itself (confirmed vs real weapon XML), so they're
-    read once and duplicated onto each result. ArcGap defaults to 11.25 when
-    undefined - an explicit 0 is a real "no spread" value, not the same thing.
+    (default 0). Each result's rateOfFire/numProjectiles/arcGapDegrees come
+    from the Subattack whose projectileId matches this Projectile's id (the
+    first subattack if none matches), falling back to the owning <Object>'s
+    flat tags only when there's no Subattack at all - see _parseSubattacks.
+    ArcGap defaults to 11.25 when undefined - an explicit 0 is a real
+    "no spread" value, not the same thing.
     """
-    rateOfFire = _parseNumber(elem.findtext("RateOfFire"))
-    rateOfFire = rateOfFire if rateOfFire is not None else 1.0
-
-    numProjectilesRaw = _parseNumber(elem.findtext("NumProjectiles"))
-    numProjectiles = int(numProjectilesRaw) if numProjectilesRaw is not None else 1
-
-    arcGapDegrees = _parseNumber(elem.findtext("ArcGap"))
-    arcGapDegrees = arcGapDegrees if arcGapDegrees is not None else 11.25
+    subattackById = {sub.projectileId: sub for sub in subattacks}
+    defaultSubattack = subattacks[0] if subattacks else ParsedSubattack(
+        projectileId=0, numProjectiles=fallbackNumProjectiles,
+        arcGapDegrees=fallbackArcGapDegrees, rateOfFire=fallbackRateOfFire,
+    )
 
     projectiles: list[ParsedProjectile] = []
     for projElem in elem.findall("Projectile"):
@@ -178,6 +235,8 @@ def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
                 continue
             extras[child.tag] = child.text if child.text is not None else ""
 
+        matchingSubattack = subattackById.get(projId, defaultSubattack)
+
         projectiles.append(ParsedProjectile(
             id=projId,
             objectId=objectIdElem.text.strip(),
@@ -191,9 +250,9 @@ def _parseProjectiles(elem: et.Element) -> list[ParsedProjectile]:
             armorPiercing=projElem.find("ArmorPiercing") is not None,
             passesCover=projElem.find("PassesCover") is not None,
             extras=extras,
-            rateOfFire=rateOfFire,
-            numProjectiles=numProjectiles,
-            arcGapDegrees=arcGapDegrees,
+            rateOfFire=matchingSubattack.rateOfFire,
+            numProjectiles=matchingSubattack.numProjectiles,
+            arcGapDegrees=matchingSubattack.arcGapDegrees,
         ))
     return projectiles
 
@@ -216,7 +275,18 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
         if not textureRefs:
             continue  # nothing to render this entity with
         if tag == "Object":
-            projectiles = _parseProjectiles(elem)
+            fallbackRateOfFire = _parseNumber(elem.findtext("RateOfFire"))
+            fallbackRateOfFire = fallbackRateOfFire if fallbackRateOfFire is not None else 1.0
+
+            fallbackNumProjectilesRaw = _parseNumber(elem.findtext("NumProjectiles"))
+            fallbackNumProjectiles = int(fallbackNumProjectilesRaw) if fallbackNumProjectilesRaw is not None else 1
+
+            fallbackArcGapDegrees = _parseNumber(elem.findtext("ArcGap"))
+            fallbackArcGapDegrees = fallbackArcGapDegrees if fallbackArcGapDegrees is not None else 11.25
+
+            subattacks = _parseSubattacks(elem, fallbackRateOfFire, fallbackNumProjectiles, fallbackArcGapDegrees)
+            projectiles = _parseProjectiles(elem, subattacks, fallbackRateOfFire, fallbackNumProjectiles,
+                                             fallbackArcGapDegrees)
             blocksMovement = elem.find("OccupySquare") is not None or elem.find("FullOccupy") is not None
             isEnemy = elem.find("Enemy") is not None
             classElem = elem.find("Class")
@@ -246,6 +316,7 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             description = descriptionElem.text.strip() if descriptionElem is not None and descriptionElem.text else ""
         else:
             projectiles = []
+            subattacks = []
             blocksMovement = isEnemy = isLootBag = isPortal = isInteractiveNpc = isBoss = False
             weaponLabel = ""
             tier = None
@@ -257,6 +328,7 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             name=name,
             textureRefs=textureRefs,
             projectiles=projectiles,
+            subattacks=subattacks,
             blocksMovement=blocksMovement,
             isEnemy=isEnemy,
             isLootBag=isLootBag,

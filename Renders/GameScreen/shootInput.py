@@ -2,8 +2,8 @@ import curses
 import math
 import queue
 import time
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 import Networking.PacketHelper as PacketHelper
 from Constants.StatusEffects import BERSERK, DAZED
@@ -14,7 +14,7 @@ from Models.ProjectileStore import ProjectileStore
 from Networking.Ticker import Ticker
 from Renders.GameScreen.mapRenderer import screenToWorld
 from Utils.json.objectNameLoader import objectRenderInfo
-from Utils.json.projectileMapLoader import getProjectileDefinition, resolveShotProjectileIds
+from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks
 
 # Confirmed unused elsewhere in the app.
 _AUTOFIRE_TOGGLE_KEYS = (ord("f"), ord("F"))
@@ -44,7 +44,10 @@ class AutoFireState:
     """Per-connection shoot state, threaded into handleShootInput each frame."""
 
     autoFire: bool = False
-    lastShotTime: int = 0
+    # A weapon fires every one of its Subattacks (see SubattackDef), each on
+    # its own independent cooldown - keyed by that subattack's projectileId,
+    # not a single weapon-wide timer.
+    lastShotTimeBySubattack: Dict[int, int] = field(default_factory=dict)
     nextShotId: int = 0
     lastMouseWorld: Optional[Tuple[float, float]] = None
     # Default facing (down) before any movement or mouse input has happened.
@@ -95,10 +98,15 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
     with panelInput.handlePanelInput - never call curses.getmouse() here
     directly). Toggles auto-fire, tracks mouse aim, and while firing sends
     one PLAYERSHOOT packet per projectile in the weapon's fan (confirmed via
-    MITM - not one per trigger pull). Spawns each shot into `projectiles`
-    immediately (client-side prediction) rather than waiting on the server's
-    echo; a later echo reuses the same (ownerId, bulletId, shotIndex) key,
-    so it just refreshes the entry instead of double-spawning.
+    MITM - not one per trigger pull). A weapon fires ALL of its Subattacks
+    each pull, each independently timed by its own rateOfFire (see
+    SubattackDef) - a single-Subattack weapon (the common case) reduces to
+    firing on one cooldown exactly as before; multi-Subattack weapons whose
+    rates differ (e.g. Makakoyumi) end up interleaving instead of firing in
+    lockstep. Spawns each shot into `projectiles` immediately (client-side
+    prediction) rather than waiting on the server's echo; a later echo
+    reuses the same (ownerId, bulletId, shotIndex) key, so it just refreshes
+    the entry instead of double-spawning.
     """
     if moveDirection is not None:
         shootState.lastMoveDirection = moveDirection
@@ -124,18 +132,17 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
         return
 
     weaponId = player.inv[0]
-    definition = getProjectileDefinition(projectileMap, weaponId, 0)
-    if definition is not None:
-        rateOfFire = definition.rateOfFire
-        numProjectiles = max(1, definition.numProjectiles)
-        arcGapRad = math.radians(definition.arcGapDegrees)
-    else:
-        rateOfFire = _DEFAULT_RATE_OF_FIRE
-        numProjectiles = _DEFAULT_NUM_PROJECTILES
-        arcGapRad = math.radians(_DEFAULT_ARC_GAP_DEGREES)
+    subattacks = getSubattacks(projectileMap, weaponId) or [SubattackDef(
+        projectileId=0, numProjectiles=_DEFAULT_NUM_PROJECTILES,
+        arcGapDegrees=_DEFAULT_ARC_GAP_DEGREES, rateOfFire=_DEFAULT_RATE_OF_FIRE,
+    )]
 
     nowMs = int(time.time() * 1000) - ticker.connectedTime
-    if nowMs - shootState.lastShotTime < _attackPeriodMs(player, rateOfFire):
+    dueSubattacks = [
+        sub for sub in subattacks
+        if nowMs - shootState.lastShotTimeBySubattack.get(sub.projectileId, 0) >= _attackPeriodMs(player, sub.rateOfFire)
+    ]
+    if not dueSubattacks:
         return
 
     if shootState.lastMouseWorld is not None:
@@ -145,42 +152,57 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
         targetX, targetY = ticker.pos.x + dx, ticker.pos.y + dy
     baseAngle = math.atan2(targetY - ticker.pos.y, targetX - ticker.pos.x)
 
-    # Fan centered on the aim direction, N-1 gaps for N projectiles - confirmed
-    # against a real 4-projectile staff capture. Not every shot uses the same
-    # projectile type (see resolveShotProjectileIds); the wire packet's
-    # bulletId is still always _DEFAULT_PROJECTILE_ID regardless - only our
-    # local prediction needs the per-shot definition.
-    shotProjectileIds = resolveShotProjectileIds(projectileMap, weaponId, numProjectiles)
+    # -1 in the wire's 1-byte bulletId field is confirmed (via MITM) for a
+    # weapon with only one projectile id ("default/only type"); weapons with
+    # more than one distinct id (e.g. Makakoyumi/Golden Bow) send that shot's
+    # real projectileId instead - unconfirmed against a live capture for this
+    # class of weapon, but -1 is definitely wrong once there's more than one
+    # id to disambiguate between.
+    distinctProjectileIds = {sub.projectileId for sub in subattacks}
     shotPos = ticker.pos.clone()
     playerPos = ticker.pos.clone()
-    for i in range(numProjectiles):
-        angle = baseAngle + (i - (numProjectiles - 1) / 2) * arcGapRad
 
-        packet = PacketHelper.createPacket("PLAYERSHOOT")
-        packet.time = nowMs
-        packet.shotId = shootState.nextShotId
-        packet.containerType = weaponId
-        packet.bulletId = _DEFAULT_PROJECTILE_ID
-        packet.shotPos = shotPos
-        packet.angle = angle
-        packet.burstId = 0  # separate weapon mechanic, not implemented
-        packet.pos = playerPos
-        outgoingQueue.put(packet)
+    for subattack in dueSubattacks:
+        numProjectiles = max(1, subattack.numProjectiles)
+        arcGapRad = math.radians(subattack.arcGapDegrees)
+        bulletIdByte = subattack.projectileId if len(distinctProjectileIds) > 1 else _DEFAULT_PROJECTILE_ID
+        shotDefinition = getProjectileDefinition(projectileMap, weaponId, subattack.projectileId)
 
-        shotDefinition = getProjectileDefinition(projectileMap, weaponId, shotProjectileIds[i]) or definition
-        if shotDefinition is not None:
-            projectiles.spawn(
-                bulletId=shootState.nextShotId,
-                ownerId=player.objectId,
-                startingPos=shotPos,
-                angle=angle,
-                speed=shotDefinition.speed,
-                damage=shotDefinition.damage,
-                lifetimeMS=shotDefinition.lifetimeMS,
-                size=shotDefinition.size,
-                visualObjectType=shotDefinition.visualObjectType,
-            )
+        # Fan centered on the aim direction, N-1 gaps for N projectiles -
+        # confirmed against a real 4-projectile staff capture. Every shot in
+        # one subattack's fan shares that subattack's own projectile id.
+        for i in range(numProjectiles):
+            angle = baseAngle + (i - (numProjectiles - 1) / 2) * arcGapRad
 
-        shootState.nextShotId = (shootState.nextShotId + 1) % 128
+            packet = PacketHelper.createPacket("PLAYERSHOOT")
+            packet.time = nowMs
+            packet.shotId = shootState.nextShotId
+            packet.containerType = weaponId
+            packet.bulletId = bulletIdByte
+            packet.shotPos = shotPos
+            packet.angle = angle
+            # Confirmed 0 in the one real capture on file (single-Subattack
+            # weapon); RotMG's actual "Burst Fire" cooldown mechanic this
+            # field name refers to is explicitly out of scope here, so this
+            # stays 0 rather than guessing a "which subattack" encoding with
+            # no capture to confirm it against a real account.
+            packet.burstId = 0
+            packet.pos = playerPos
+            outgoingQueue.put(packet)
 
-    shootState.lastShotTime = nowMs
+            if shotDefinition is not None:
+                projectiles.spawn(
+                    bulletId=shootState.nextShotId,
+                    ownerId=player.objectId,
+                    startingPos=shotPos,
+                    angle=angle,
+                    speed=shotDefinition.speed,
+                    damage=shotDefinition.damage,
+                    lifetimeMS=shotDefinition.lifetimeMS,
+                    size=shotDefinition.size,
+                    visualObjectType=shotDefinition.visualObjectType,
+                )
+
+            shootState.nextShotId = (shootState.nextShotId + 1) % 128
+
+        shootState.lastShotTimeBySubattack[subattack.projectileId] = nowMs

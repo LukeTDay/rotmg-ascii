@@ -2,6 +2,27 @@ from typing import Dict, List, Optional
 import json
 
 
+class SubattackDef:
+    """One <Subattack projectileId="N"> a weapon fires - a weapon fires ALL
+    of its subattacks, each on its own independent cooldown (own rateOfFire),
+    each its own numProjectiles-count fan spread by its own arcGapDegrees of
+    its own projectileId. See Scripts/AssetPipeline/parseGameXml.ParsedSubattack."""
+
+    def __init__(self, projectileId: int, numProjectiles: int, arcGapDegrees: float, rateOfFire: float):
+        self.projectileId = projectileId
+        self.numProjectiles = numProjectiles
+        self.arcGapDegrees = arcGapDegrees
+        self.rateOfFire = rateOfFire
+
+
+class OwnerEntry:
+    """Everything projectileMap.json stores for one weapon/enemy objectType."""
+
+    def __init__(self, projectiles: Dict[int, "ProjectileDefinition"], subattacks: List[SubattackDef]):
+        self.projectiles = projectiles
+        self.subattacks = subattacks
+
+
 class ProjectileDefinition:
     def __init__(self, objectId: str, speed: float, lifetimeMS: int, damage: int,
                  minDamage: Optional[int], maxDamage: Optional[int], size: Optional[int],
@@ -29,19 +50,19 @@ class ProjectileDefinition:
         self.visualObjectType = visualObjectType
 
 
-def projectileMapLoader(path: str = "Resources/projectileMap.json") -> Dict[int, Dict[int, ProjectileDefinition]]:
-    """Loads `Resources/projectileMap.json` into
-    {ownerObjectType: {projectileId: ProjectileDefinition}}. `projectileId` is
-    the slot a SERVERPLAYERSHOOT/ENEMYSHOOT packet's containerType/bulletType
-    references - see `getProjectileDefinition`.
+def projectileMapLoader(path: str = "Resources/projectileMap.json") -> Dict[int, OwnerEntry]:
+    """Loads `Resources/projectileMap.json` into {ownerObjectType: OwnerEntry}.
+    `projectileId` is the slot a SERVERPLAYERSHOOT/ENEMYSHOOT packet's
+    containerType/bulletType references - see `getProjectileDefinition`.
+    `subattacks` is the weapon's ordered <Subattack> list - see `getSubattacks`.
     """
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    result: Dict[int, Dict[int, ProjectileDefinition]] = {}
-    for ownerStr, projectiles in raw.items():
+    result: Dict[int, OwnerEntry] = {}
+    for ownerStr, ownerData in raw.items():
         owner = int(ownerStr)
-        result[owner] = {
+        projectiles = {
             int(idStr): ProjectileDefinition(
                 objectId=data["objectId"],
                 speed=data["speed"],
@@ -59,19 +80,38 @@ def projectileMapLoader(path: str = "Resources/projectileMap.json") -> Dict[int,
                 arcGapDegrees=data.get("arcGapDegrees", 11.25),
                 visualObjectType=data.get("visualObjectType"),
             )
-            for idStr, data in projectiles.items()
+            for idStr, data in ownerData.get("projectiles", {}).items()
         }
+        subattacks = [
+            SubattackDef(
+                projectileId=sub["projectileId"],
+                numProjectiles=sub["numProjectiles"],
+                arcGapDegrees=sub["arcGapDegrees"],
+                rateOfFire=sub["rateOfFire"],
+            )
+            for sub in ownerData.get("subattacks", [])
+        ]
+        result[owner] = OwnerEntry(projectiles=projectiles, subattacks=subattacks)
     return result
 
 
 def getProjectileDefinition(
-    projectileMap: Dict[int, Dict[int, ProjectileDefinition]], ownerObjectType: int, projectileId: int
+    projectileMap: Dict[int, OwnerEntry], ownerObjectType: int, projectileId: int
 ) -> Optional[ProjectileDefinition]:
-    return projectileMap.get(ownerObjectType, {}).get(projectileId)
+    entry = projectileMap.get(ownerObjectType)
+    return entry.projectiles.get(projectileId) if entry is not None else None
+
+
+def getSubattacks(projectileMap: Dict[int, OwnerEntry], ownerObjectType: int) -> List[SubattackDef]:
+    """The weapon's ordered <Subattack> list - a weapon fires ALL of these,
+    each independently timed by its own rateOfFire (see SubattackDef).
+    Empty for an unknown owner (caller should fall back to a single default)."""
+    entry = projectileMap.get(ownerObjectType)
+    return entry.subattacks if entry is not None else []
 
 
 def resolveShotProjectileIds(
-    projectileMap: Dict[int, Dict[int, ProjectileDefinition]], ownerObjectType: int, numProjectiles: int
+    projectileMap: Dict[int, OwnerEntry], ownerObjectType: int, numProjectiles: int
 ) -> List[int]:
     """Not every shot in a multi-shot fan uses the same projectile id: tiered
     bows (e.g. Golden Bow) use a stronger id for the center shot and a weaker
@@ -81,8 +121,14 @@ def resolveShotProjectileIds(
     available ids sorted ascending (closest = lowest id), clamping past the
     last id. Verified against confirmed 3-shot/2-id bows; other id/shot-count
     combos are unverified but still deterministic.
+
+    Used only for the *incoming* SERVERPLAYERSHOOT/ENEMYSHOOT echo path
+    (rendering other players'/enemies' shots) - the outgoing path in
+    shootInput.py uses each Subattack's own explicit projectileId instead,
+    since it already knows which subattack it's firing.
     """
-    available = sorted(projectileMap.get(ownerObjectType, {}).keys())
+    entry = projectileMap.get(ownerObjectType)
+    available = sorted(entry.projectiles.keys()) if entry is not None else []
     if not available:
         return [0] * numProjectiles
     if len(available) == 1 or numProjectiles <= 1:

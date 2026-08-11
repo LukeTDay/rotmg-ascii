@@ -9,7 +9,7 @@ from Models.GameState import GameObject, GameState
 from Models.TileManager import _TIER_PRIORITY, classifyObject
 from Renders.GameScreen.uiPanel import PanelLayout, centeredCol
 from Utils.json.objectNameLoader import objectRenderInfo
-from Utils.json.projectileMapLoader import ProjectileDefinition, getProjectileDefinition
+from Utils.json.projectileMapLoader import OwnerEntry, getProjectileDefinition
 
 # Known equipment-category tokens that can appear in ObjectRenderInfo.
 # weaponLabel's comma-split <Labels> text (e.g. "EQUIPMENT,WEAPON,SWORD,
@@ -66,7 +66,7 @@ def _resolveTypeLabel(weaponLabel: str) -> str:
 
 
 def drawItemInfoPeek(pad: curses.window, layout: PanelLayout, peekedObjectType: Optional[int],
-                      projectileMap: Dict[int, Dict[int, ProjectileDefinition]]) -> None:
+                      projectileMap: Dict[int, OwnerEntry]) -> None:
     """Draws into the panel's top section: NAME always, plus TYPE/TIER/MP
     COST/DESCRIPTION/RATE OF FIRE+DAMAGE when peekedObjectType resolves to an
     equipment item (weaponLabel non-empty). Truncates rather than scrolling
