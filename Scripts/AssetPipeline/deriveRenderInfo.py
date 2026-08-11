@@ -45,7 +45,7 @@ LOOT_BAG_CHAR = "$"
 # not identity color, during the center-out fallback search.
 NEAR_BLACK_THRESHOLD = 0.15
 
-VISIBLE_FALLBACK_COLOR = "WHITE"
+VISIBLE_FALLBACK_COLOR = "YELLOW"  # matches brown/tan loot bags, see _BAG_COLOR_REFERENCES below
 
 # nearestCursesColor handles bag colors badly (no true BROWN corner, indigo/
 # purple bags collapse into magenta) - classified instead against reference
