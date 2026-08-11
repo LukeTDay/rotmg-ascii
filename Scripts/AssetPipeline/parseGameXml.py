@@ -30,6 +30,13 @@ GENERATED_ROOT = Path(__file__).resolve().parents[2] / "Resources" / "_generated
 
 TEXTURE_TAGS = ("Texture", "AnimatedTexture")
 
+# Real client's marker for "don't render this" (invisible spawners, triggers,
+# encounter markers, etc.) - not a dedicated XML tag, just this magic File
+# name. Dropped so entities using only this texture end up with zero
+# resolvable refs and get skipped by _parseEntities' "nothing to render this
+# entity with" check.
+INVISIBLE_TEXTURE_FILE = "invisible"
+
 # Fields needed to simulate flight/damage/hitbox; everything else a
 # <Projectile> can carry (Wavy, Boomerang, TurnRate*, etc. - real flight
 # variants, not typos) is preserved in ParsedProjectile.extras instead.
@@ -142,7 +149,10 @@ def _parseTextureRefs(elem: et.Element) -> list[tuple[str, int]]:
             index = _parseIndex(indexElem.text)
             if index is None:
                 continue
-            refs.append((fileElem.text.strip(), index))
+            fileName = fileElem.text.strip()
+            if fileName == INVISIBLE_TEXTURE_FILE:
+                continue
+            refs.append((fileName, index))
         elif child.tag == "RandomTexture":
             refs.extend(_parseTextureRefs(child))
     return refs
