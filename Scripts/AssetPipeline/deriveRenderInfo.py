@@ -106,6 +106,10 @@ class RenderInfo:
     mpCost: int | None = None
     mpEndCost: int | None = None
     description: str = ""
+    # Hit-detection fields, straight from ParsedEntity - see that dataclass's
+    # own field comment for what these mean.
+    baseSize: int = 100
+    hitboxScale: float | None = None
 
 
 def nearestCursesColor(r: float, g: float, b: float) -> str:
@@ -222,6 +226,8 @@ def deriveRenderInfo(
         mpCost=entity.mpCost,
         mpEndCost=entity.mpEndCost,
         description=entity.description,
+        baseSize=entity.baseSize,
+        hitboxScale=entity.hitboxScale,
     )
 
 

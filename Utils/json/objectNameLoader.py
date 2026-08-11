@@ -31,6 +31,11 @@ class ObjectRenderInfo:
     mpCost: Optional[int] = None
     mpEndCost: Optional[int] = None
     description: str = ""
+    # Hit-detection fields (client-side ENEMYHIT geometry) - see
+    # Scripts/AssetPipeline/parseGameXml.ParsedEntity's field comment for
+    # what these mean and Renders/GameScreen/hitDetection.py for their use.
+    baseSize: int = 100
+    hitboxScale: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +80,8 @@ def _loadObjectInfo() -> Dict[int, ObjectRenderInfo]:
                 mpCost=entry.get("mpCost"),
                 mpEndCost=entry.get("mpEndCost"),
                 description=entry.get("description", ""),
+                baseSize=entry.get("baseSize", 100),
+                hitboxScale=entry.get("hitboxScale"),
             )
             for idStr, entry in _loadRenderMap().get("objects", {}).items()
             if "name" in entry

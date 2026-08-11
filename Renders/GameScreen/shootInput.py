@@ -35,7 +35,8 @@ _DEFAULT_RATE_OF_FIRE = 1.0
 _DEFAULT_NUM_PROJECTILES = 1
 _DEFAULT_ARC_GAP_DEGREES = 11.25
 
-# Confirmed via MITM: real client sends -1 here for a single-projectile weapon.
+# Confirmed via MITM: real client sends -1 here only for weapons with no
+# <Subattack> in their XML (legacy flat-tag weapons) - see sendRealProjectileId.
 _DEFAULT_PROJECTILE_ID = -1
 
 
@@ -132,10 +133,31 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
         return
 
     weaponId = player.inv[0]
-    subattacks = getSubattacks(projectileMap, weaponId) or [SubattackDef(
-        projectileId=0, numProjectiles=_DEFAULT_NUM_PROJECTILES,
-        arcGapDegrees=_DEFAULT_ARC_GAP_DEGREES, rateOfFire=_DEFAULT_RATE_OF_FIRE,
-    )]
+    subattacks = getSubattacks(projectileMap, weaponId)
+    # Confirmed via MITM: whether a weapon has ANY real <Subattack> in its XML
+    # (not just whether it has one, or how many distinct projectile ids it
+    # has) decides the wire's 1-byte bulletId field. Legacy weapons with no
+    # <Subattack> (flat NumProjectiles/ArcGap tags, e.g. Staff of Unholy
+    # Sacrifice) send -1 for every shot; weapons migrated to the <Subattack>
+    # shape send their real subattack.projectileId instead - even Coral Bow,
+    # whose single <Subattack projectileId="0"> still sends 0, never -1.
+    sendRealProjectileId = bool(subattacks)
+    if not subattacks:
+        # No <Subattack> - fall back to the id-0 ProjectileDefinition's own
+        # numProjectiles/arcGap/rateOfFire (sourced from the flat Object-level
+        # tags), not the hardcoded defaults below, which are a last resort
+        # only for a weapon missing from projectileMap.json entirely.
+        legacyDefinition = getProjectileDefinition(projectileMap, weaponId, 0)
+        if legacyDefinition is not None:
+            subattacks = [SubattackDef(
+                projectileId=0, numProjectiles=max(1, legacyDefinition.numProjectiles),
+                arcGapDegrees=legacyDefinition.arcGapDegrees, rateOfFire=legacyDefinition.rateOfFire,
+            )]
+        else:
+            subattacks = [SubattackDef(
+                projectileId=0, numProjectiles=_DEFAULT_NUM_PROJECTILES,
+                arcGapDegrees=_DEFAULT_ARC_GAP_DEGREES, rateOfFire=_DEFAULT_RATE_OF_FIRE,
+            )]
 
     nowMs = int(time.time() * 1000) - ticker.connectedTime
     dueSubattacks = [
@@ -152,20 +174,13 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
         targetX, targetY = ticker.pos.x + dx, ticker.pos.y + dy
     baseAngle = math.atan2(targetY - ticker.pos.y, targetX - ticker.pos.x)
 
-    # -1 in the wire's 1-byte bulletId field is confirmed (via MITM) for a
-    # weapon with only one projectile id ("default/only type"); weapons with
-    # more than one distinct id (e.g. Makakoyumi/Golden Bow) send that shot's
-    # real projectileId instead - unconfirmed against a live capture for this
-    # class of weapon, but -1 is definitely wrong once there's more than one
-    # id to disambiguate between.
-    distinctProjectileIds = {sub.projectileId for sub in subattacks}
     shotPos = ticker.pos.clone()
     playerPos = ticker.pos.clone()
 
     for subattack in dueSubattacks:
         numProjectiles = max(1, subattack.numProjectiles)
         arcGapRad = math.radians(subattack.arcGapDegrees)
-        bulletIdByte = subattack.projectileId if len(distinctProjectileIds) > 1 else _DEFAULT_PROJECTILE_ID
+        bulletIdByte = subattack.projectileId if sendRealProjectileId else _DEFAULT_PROJECTILE_ID
         shotDefinition = getProjectileDefinition(projectileMap, weaponId, subattack.projectileId)
 
         # Fan centered on the aim direction, N-1 gaps for N projectiles -
@@ -201,6 +216,10 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
                     lifetimeMS=shotDefinition.lifetimeMS,
                     size=shotDefinition.size,
                     visualObjectType=shotDefinition.visualObjectType,
+                    multiHit=shotDefinition.multiHit,
+                    armorPiercing=shotDefinition.armorPiercing,
+                    minDamage=shotDefinition.minDamage,
+                    maxDamage=shotDefinition.maxDamage,
                 )
 
             shootState.nextShotId = (shootState.nextShotId + 1) % 128

@@ -105,6 +105,15 @@ class ParsedEntity:
     mpCost: int | None = None  # <MpCost>
     mpEndCost: int | None = None  # <MpEndCost>
     description: str = ""  # <Description>
+    # Hit-detection fields (client-side ENEMYHIT geometry - see
+    # Renders/GameScreen/hitDetection.py). baseSize is the object's own
+    # <Size> (percent, 100=normal) - most enemies rely on the live runtime
+    # SizeStat instead, this is just the resting/default value. hitboxScale
+    # is <CustomHitbox scale="N"> when present (~55 mostly-boss enemies
+    # override their hitbox independent of visual sprite size) - None means
+    # no override, use the size-derived radius as-is.
+    baseSize: int = 100
+    hitboxScale: float | None = None
 
 
 def _parseTypeAttr(raw: str) -> int | None:
@@ -155,16 +164,22 @@ def _parseSubattacks(elem: et.Element, fallbackRateOfFire: float, fallbackNumPro
     (confirmed shape vs real weapon XML - e.g. Golden Bow's center/flanking
     arrows are two Subattacks with matching rates that happen to fire
     together; Makakoyumi's two Subattacks have different rates and interleave
-    instead). Falls back to a single synthetic entry from the owning
-    <Object>'s flat tags when there are no <Subattack> children at all (plain
-    melee weapons etc., which never got migrated to the Subattack shape).
+    instead).
+
+    Returns [] (not a synthetic entry) when there are no <Subattack> children
+    at all - confirmed via MITM capture that this distinction matters on the
+    wire, not just internally: legacy weapons with no <Subattack> (e.g. Staff
+    of Unholy Sacrifice, flat NumProjectiles/ArcGap tags) send bulletId=-1 for
+    every shot, while weapons migrated to the <Subattack> shape send their
+    real subattack.projectileId instead - even Coral Bow, whose single
+    <Subattack projectileId="0"> still sends 0, never -1. Callers that only
+    care about fan mechanics (not the legacy/real distinction) should fall
+    back to a synthetic single entry themselves - see _parseProjectiles's
+    defaultSubattack and shootInput.handleShootInput's identical fallback.
     """
     subElems = elem.findall("Subattack")
     if not subElems:
-        return [ParsedSubattack(
-            projectileId=0, numProjectiles=fallbackNumProjectiles,
-            arcGapDegrees=fallbackArcGapDegrees, rateOfFire=fallbackRateOfFire,
-        )]
+        return []
 
     subattacks: list[ParsedSubattack] = []
     for subElem in subElems:
@@ -314,6 +329,16 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
 
             descriptionElem = elem.find("Description")
             description = descriptionElem.text.strip() if descriptionElem is not None and descriptionElem.text else ""
+
+            # <Size> here is a direct child of <Object>, distinct from any
+            # <Size> nested inside <Projectile>/<Subattack> (findtext doesn't
+            # recurse past direct children, so those don't collide with this).
+            baseSizeRaw = _parseNumber(elem.findtext("Size"))
+            baseSize = int(baseSizeRaw) if baseSizeRaw is not None else 100
+
+            hitboxElem = elem.find("CustomHitbox")
+            hitboxScaleRaw = _parseNumber(hitboxElem.get("scale")) if hitboxElem is not None else None
+            hitboxScale = hitboxScaleRaw if hitboxScaleRaw is not None else None
         else:
             projectiles = []
             subattacks = []
@@ -323,6 +348,8 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             mpCost = None
             mpEndCost = None
             description = ""
+            baseSize = 100
+            hitboxScale = None
         entities[entityId] = ParsedEntity(
             entityId=entityId,
             name=name,
@@ -340,6 +367,8 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             mpCost=mpCost,
             mpEndCost=mpEndCost,
             description=description,
+            baseSize=baseSize,
+            hitboxScale=hitboxScale,
         )
     return entities
 

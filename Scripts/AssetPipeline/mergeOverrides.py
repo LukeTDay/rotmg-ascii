@@ -56,6 +56,8 @@ def mergeOverrides(derived: dict[str, dict[int, RenderInfo]], overrides: dict) -
                 "mpCost": info.mpCost,
                 "mpEndCost": info.mpEndCost,
                 "description": info.description,
+                "baseSize": info.baseSize,
+                "hitboxScale": info.hitboxScale,
             }
             for entity_id, info in derived[category].items()
         }

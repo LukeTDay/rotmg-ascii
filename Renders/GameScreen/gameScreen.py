@@ -14,6 +14,7 @@ from Networking.Ticker import computeSpeed
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen import bottomPanel, inventoryPanel, itemInfoPeek, uiPanel
+from Renders.GameScreen.hitDetection import checkProjectileHits
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
 from Renders.GameScreen.panelInput import handlePanelInput
@@ -234,6 +235,11 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
             size=definition.size,
             shotIndex=i,
             visualObjectType=definition.visualObjectType,
+            multiHit=definition.multiHit,
+            armorPiercing=definition.armorPiercing,
+            # No minDamage/maxDamage here - `damage` above is already the
+            # server's own authoritative value for this echoed shot (from
+            # SERVERPLAYERSHOOT/ENEMYSHOOT), better than a fresh local roll.
         )
 
 
@@ -340,6 +346,13 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                         )
         except queue.Empty:
             pass
+        if player.objectId != 0:
+            # ownerId must match what shootInput.py/_spawnProjectiles stored
+            # on each Projectile (player.objectId, not listener.objectId) -
+            # they converge once CREATESUCCESS/the matching UPDATE lands, but
+            # player.objectId's own unset default is 0, not listener's -1.
+            nowMs = int(time.time() * 1000) - ticker.connectedTime
+            checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue)
         projectiles.prune()
         queueDrainMs = (time.time() - queueDrainStart) * 1000
 
