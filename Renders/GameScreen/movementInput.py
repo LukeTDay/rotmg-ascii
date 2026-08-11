@@ -2,32 +2,18 @@ import curses
 import math
 import sys
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from Data.WorldPosData import WorldPosData
 from Models.GameState import GameState
 from Models.TileManager import buildBlockedTileIndex, isTileBlocked
 from Networking.Ticker import Ticker
+from Renders.GameScreen.inputRouter import resolveDirection, resolveVkByDirection
 
 # How far ahead each keypress nudges Ticker's target - large enough that
 # auto-repeat keeps it ahead of the dead-reckoned position, so holding a key
 # glides instead of stutter-stepping.
 MOVE_LOOKAHEAD_TILES = 1.0
-
-_DIRECTIONS = {
-    curses.KEY_UP: (0.0, -1.0),
-    curses.KEY_DOWN: (0.0, 1.0),
-    curses.KEY_LEFT: (-1.0, 0.0),
-    curses.KEY_RIGHT: (1.0, 0.0),
-    ord("w"): (0.0, -1.0),
-    ord("W"): (0.0, -1.0),
-    ord("s"): (0.0, 1.0),
-    ord("S"): (0.0, 1.0),
-    ord("a"): (-1.0, 0.0),
-    ord("A"): (-1.0, 0.0),
-    ord("d"): (1.0, 0.0),
-    ord("D"): (1.0, 0.0),
-}
 
 # Windows-only: real physical key state via GetAsyncKeyState, which sidesteps
 # terminal auto-repeat's initial delay and can detect two keys held at once
@@ -40,13 +26,6 @@ if IS_WINDOWS:
     import ctypes
 
     _user32 = ctypes.windll.user32
-    # Each direction backed by both its arrow key and its WASD key.
-    _VK_BY_DIRECTION: Tuple[Tuple[Tuple[float, float], Tuple[int, int]], ...] = (
-        ((0.0, -1.0), (0x26, 0x57)),  # up: VK_UP, 'W'
-        ((0.0, 1.0), (0x28, 0x53)),   # down: VK_DOWN, 'S'
-        ((-1.0, 0.0), (0x25, 0x41)),  # left: VK_LEFT, 'A'
-        ((1.0, 0.0), (0x27, 0x44)),   # right: VK_RIGHT, 'D'
-    )
 
     # GetAsyncKeyState ignores window focus entirely, so it would fire from
     # any window. Two focus checks (GetForegroundWindow vs GetConsoleWindow;
@@ -86,13 +65,15 @@ if IS_WINDOWS:
         global _lastKeyEventTime
         _lastKeyEventTime = time.monotonic()
 
-    def _pollHeldDirection() -> Optional[Tuple[float, float]]:
+    def _pollHeldDirection(
+        vkByDirection: Tuple[Tuple[Tuple[float, float], Tuple[int, ...]], ...]
+    ) -> Optional[Tuple[float, float]]:
         if _lastKeyEventTime is None:
             return None
         if time.monotonic() - _lastKeyEventTime > _HOLD_TRUST_WINDOW_SECONDS:
             return None
         dx = dy = 0.0
-        for (vx, vy), vks in _VK_BY_DIRECTION:
+        for (vx, vy), vks in vkByDirection:
             if any(_user32.GetAsyncKeyState(vk) & 0x8000 for vk in vks):
                 dx += vx
                 dy += vy
@@ -145,7 +126,9 @@ def getFrameMouseEvent(keys: List[int]) -> Optional[Tuple[int, int, int]]:
     return lastEvent
 
 
-def handleMovementInput(keys: List[int], ticker: Ticker, state: GameState) -> Optional[Tuple[float, float]]:
+def handleMovementInput(
+    keys: List[int], ticker: Ticker, state: GameState, keybinds: Dict[str, str]
+) -> Optional[Tuple[float, float]]:
     """Resolves this frame's direction - real key state via _pollHeldDirection
     on Windows (true diagonals), else the last directional key in `keys`
     (cardinal-only; a terminal can't reliably report simultaneous keys).
@@ -157,13 +140,10 @@ def handleMovementInput(keys: List[int], ticker: Ticker, state: GameState) -> Op
     Returns the resolved direction (or None) so callers (gameScreen.py's
     shoot-aim fallback) can track last-moved facing.
     """
-    direction: Optional[Tuple[float, float]] = None
-    for key in keys:
-        if key in _DIRECTIONS:
-            direction = _DIRECTIONS[key]
+    direction = resolveDirection(keys, keybinds)
 
     if IS_WINDOWS:
-        direction = _pollHeldDirection()
+        direction = _pollHeldDirection(resolveVkByDirection(keybinds))
 
     if direction is None:
         return None

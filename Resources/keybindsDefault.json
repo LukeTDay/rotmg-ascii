@@ -1,0 +1,9 @@
+{
+    "moveUp": "w",
+    "moveDown": "s",
+    "moveLeft": "a",
+    "moveRight": "d",
+    "autoFire": "f",
+    "openChat": "/",
+    "nexus": "r"
+}

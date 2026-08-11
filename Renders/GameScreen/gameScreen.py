@@ -19,6 +19,7 @@ from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
 from Renders.GameScreen.panelInput import handlePanelInput
 from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
+from Renders.PauseMenu.pauseMenu import drawPauseMenu
 
 from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds, wavyParams
 
@@ -44,6 +45,16 @@ GC_COLLECT_INTERVAL_SECONDS = 60.0
 # loop back through _establishConnection instead of leaving gameScreen.
 # Distinct from None (proceed normally) and an actual Screen (leave for good).
 _RECONNECT = object()
+
+# Maps the pause menu is reachable from - matched against CURR_MAP_NAME
+# (MapInfoPacket.name), not GameIds.nexus: that gameId is only ever sent in
+# the very first HELLO after char select, every later map (including these)
+# arrives via a server-assigned gameId echoed back through RECONNECT.
+_SAFE_AREAS = {"nexus", "vault", "pet yard", "daily quest room", "grand bazaar"}
+
+
+def _isSafeArea(ctx: Context) -> bool:
+    return ctx.get("CURR_MAP_NAME", "").strip().lower() in _SAFE_AREAS
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
@@ -398,14 +409,29 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         isTyping = chatPanel.handleChatInput(keys, ctx, outgoingQueue, ticker)
         chatInputMs = (time.time() - chatInputStart) * 1000
 
+        keybinds = ctx.get("KEYBINDS", {})
+
+        if not isTyping and 27 in keys:
+            if _isSafeArea(ctx):
+                result = drawPauseMenu(stdscr, ctx)
+                if result is not None:
+                    _teardownConnection(ctx)
+                    return result
+            else:
+                chatPanel.pushSystemMessage(
+                    ctx, "You must be in a safe area (Nexus, Vault, Pet Yard, Daily Quest Room, "
+                         "or Grand Bazaar) to open this menu."
+                )
+            continue
+
         movementStart = time.time()
-        moveDirection = None if isTyping else handleMovementInput(keys, ticker, state)
+        moveDirection = None if isTyping else handleMovementInput(keys, ticker, state, keybinds)
         movementMs = (time.time() - movementStart) * 1000
 
         shootStart = time.time()
         if not isTyping:
             handleShootInput(keys, stdscr, ticker, player, outgoingQueue, shootState, moveDirection, debugger,
-                              projectileMap, projectiles, mouseEvent)
+                              projectileMap, projectiles, mouseEvent, keybinds)
         shootMs = (time.time() - shootStart) * 1000
 
         panelInputStart = time.time()

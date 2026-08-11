@@ -53,6 +53,7 @@ Small, mostly-static lookup tables and enums. No logic to speak of — just data
 - **`Servers.py`** — a hardcoded server name ↔ IP table. Largely superseded by the live `account/servers` HTTP endpoint (`Utils/XML/parseServersXML.py`), kept around as a fallback/reference.
 - **`StatTypes.py`** — the `StatTypes` class: every numeric player/object stat id (`HPSTAT`, `LEVELSTAT`, `NAMESTAT`, ...) the game protocol sends. `nameOf(statType)` reverse-looks-up the id back to its constant name for debugging.
 - **`StatusEffects.py`** — numeric condition-effect bit ids (`SLOWED`, `DAZED`, `BERSERK`, `PARALYZED`, ...), consumed via `Models/ConditionEffect.hasEffect(condition, *effects)`.
+- **`ItemGlyphs.py`** — `resolveEquipmentChar`/`resolvePotionChar`: maps an item's `weaponLabel` (raw `<Labels>` string) to its inventory-grid glyph — per-category weapon/ability letter, armor bracket by weight class, `=` for rings/amulets, and colored h/m/c potion glyphs. Used by `Renders/GameScreen/inventoryPanel.py`.
 
 ---
 
@@ -113,6 +114,8 @@ Everything that talks to the game socket, plus the packet protocol layer itself.
 
 Where the main files handling rendering reside — one subfolder per `Screen`, each exporting a `draw<ScreenName>(stdscr, ctx) -> Screen` function that `main.py` calls each loop iteration.
 
+- **`backgroundTexture.py`** — `drawBackgroundTexture(stdscr, pad, ctx, ...)`: scatters a sparse random field of dimmed ASCII punctuation glyphs across the pad as ambient texture, called once per frame by every screen before it draws its own content on top. Re-rolled on a wall-clock timer (`DEFAULT_REGEN_INTERVAL_SECONDS`), cached in `ctx["BACKGROUND_TEXTURE_CACHE"]`; `forceRegen=True` bypasses the timer for one call (e.g. right after a menu selection changes).
+
 ### `EnterAccountInfo/enterAccountInfo.py`
 
 Interactive curses form for entering a new account's email/password/alias, verifying it against the real API before saving. Also the home of the small helper functions **every other screen imports**:
@@ -160,6 +163,13 @@ The actual live-gameplay screen — by far the most involved part of the app.
   - `AutoFireState` — small per-connection dataclass (`autoFire`, `lastShotTime`, `nextShotId`, `lastMouseWorld`, `lastMoveDirection`).
   - `_attackPeriodMs(player, rateOfFire)` — RotMG's real DEX-based attack-frequency formula, condition-adjusted (`DAZED` clamps to slowest, `BERSERK` multiplies by 1.5).
   - `handleShootInput(...)` — toggles auto-fire, tracks mouse-aim position, and while auto-fire is on and off cooldown, builds one `PLAYERSHOOT` packet **per projectile** in the weapon's fan (matching real client behavior confirmed via packet capture) and spawns each shot into `ProjectileStore` immediately (client-side prediction) rather than waiting for the server to echo it back.
+- **`hitDetection.py`** — client-side hit detection for the local player's own shots (RotMG expects the shooter's own client to report hits, not the server). `checkProjectileHits` sends `ENEMYHIT` for projectiles within an UNVERIFIED estimated hitbox radius of a live enemy; `HitTracker` logs confirmed-vs-unconfirmed sends (matched against incoming `DamagePacket`s) so that radius estimate can be calibrated against real data.
+- **`uiPanel.py`** — `computePanelLayout`/`PanelLayout`: partitions the terminal into the map/panel divider column and the right-side panel's 3 stacked sections (top/middle/bottom). `drawPanelFrame` draws the dividers; `centeredCol`, `drawGridDividers`, `evenlySpacedRows` are shared grid-layout helpers used by both `inventoryPanel.py` and `bottomPanel.py`.
+- **`inventoryPanel.py`** — draws the panel's middle section. `drawBars` — XP-or-Fame bar plus shared-row HP/MP bars. `drawInventoryGrid`/`resolveInventoryClick` — the base 12 inventory slots plus up to 16 backpack slots (`player.backpackSlots`), rendered/hit-tested as a grid.
+- **`itemInfoPeek.py`** — draws the panel's top section: name/type/tier/MP-cost/damage/description for whichever item was last clicked (`ctx["PEEKED_OBJECT_TYPE"]`, re-resolved fresh each frame). `resolveClickedObject` maps a map-area click to the `GameObject` under it, reusing `TileManager`'s tier-priority precedence so it agrees with what's actually drawn there.
+- **`bottomPanel.py`** — draws the panel's bottom section: a nearby portal or loot-bag widget (cycle between multiple candidates, enter/open), falling back to a map-name/player-count default when nothing's nearby. `resolveActiveWidget` decides which each frame; portal detection requires standing on the exact same tile, bag detection uses a small range radius.
+- **`panelInput.py`** — `handlePanelInput`: routes the frame's single pre-fetched mouse event to whichever screen area it landed in — map click → item-info peek, middle section → inventory slot click, bottom section → whichever widget `bottomPanel.resolveActiveWidget` says is active. Drives the select-then-second-click-to-swap (`INVSWAP`) / drop-on-empty-click (`INVDROP`) flow, with a `SELECTION_TIMEOUT_SECONDS` auto-expiry on a stale pending selection.
+- **`chatPanel.py`** — left-side chat panel. `computeChatLayout`/`drawChatPanel` — 2-row-section layout (reserved placeholder + message history/input bar); `handleChatInput` — `/`-key opens a capped-length (`MAX_MESSAGE_LENGTH` = 128) input box and stops movement immediately; `recordIncomingText` appends an incoming `TEXT` packet to `ctx["CHAT_MESSAGES"]`, colored by self/other/world.
 
 ---
 

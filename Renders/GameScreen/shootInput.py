@@ -11,11 +11,9 @@ from Models.ConditionEffect import hasEffect
 from Models.PlayerData import PlayerData
 from Models.ProjectileStore import ProjectileStore
 from Networking.Ticker import Ticker
+from Renders.GameScreen.inputRouter import isAutoFireToggle
 from Renders.GameScreen.mapRenderer import screenToWorld
 from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks, wavyParams
-
-# Confirmed unused elsewhere in the app.
-_AUTOFIRE_TOGGLE_KEYS = (ord("f"), ord("F"))
 
 # RotMG's DEX-based attack-frequency formula (attacks/ms), confirmed against
 # RealmEye's docs. DAZED clamps to _MIN before RateOfFire; BERSERK is a 1.5x
@@ -69,7 +67,8 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
                       outgoingQueue: "queue.Queue", shootState: AutoFireState,
                       moveDirection: Optional[Tuple[float, float]], debugger, projectileMap,
                       projectiles: ProjectileStore,
-                      mouseEvent: Optional[Tuple[int, int, int]]) -> None:
+                      mouseEvent: Optional[Tuple[int, int, int]],
+                      keybinds: Dict[str, str]) -> None:
     """Consumes this frame's already-drained keys (see movementInput.drainKeys
     - shared since curses only yields each keystroke once) and `mouseEvent`
     (movementInput.getFrameMouseEvent's single per-frame fetch, also shared
@@ -89,12 +88,11 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
     if moveDirection is not None:
         shootState.lastMoveDirection = moveDirection
 
-    for key in keys:
-        if key in _AUTOFIRE_TOGGLE_KEYS:
-            shootState.autoFire = not shootState.autoFire
-            # State-changing, low-frequency (a manual toggle, not a per-shot
-            # event) - worth logging, unlike the per-shot packet send below.
-            debugger.info(f"Auto-fire {'enabled' if shootState.autoFire else 'disabled'}")
+    if isAutoFireToggle(keys, keybinds):
+        shootState.autoFire = not shootState.autoFire
+        # State-changing, low-frequency (a manual toggle, not a per-shot
+        # event) - worth logging, unlike the per-shot packet send below.
+        debugger.info(f"Auto-fire {'enabled' if shootState.autoFire else 'disabled'}")
 
     if mouseEvent is not None:
         mouseRow, mouseCol, _bstate = mouseEvent

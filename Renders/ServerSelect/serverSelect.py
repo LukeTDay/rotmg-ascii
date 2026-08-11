@@ -6,6 +6,7 @@ from typing import Dict, List
 from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawTextAt, figletLineCount
 from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
+from Utils.json.lastServerLoader import loadLastServer, saveLastServer
 
 ROWS_PER_SLOT = 2  # 1 text row + 1 blank spacer row
 COLUMN_GAP = 4
@@ -44,6 +45,17 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
 
     rowIdx = 0
     colIdx = 0
+
+    # Pre-select whichever server was picked last session, if it still exists.
+    lastServer = loadLastServer()
+    if lastServer in serverNames:
+        flatIndex = serverNames.index(lastServer)
+        for r, row in enumerate(gridRows):
+            if flatIndex in row:
+                rowIdx = r
+                colIdx = row.index(flatIndex)
+                break
+
     scrollOffset = 0
     selectionChanged = False
 
@@ -99,6 +111,7 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
             else:
                 name = serverNames[entryIndex]
                 ctx["CURR_SERVER"] = servers[name]
+                saveLastServer(name)
                 return Screen.gameScreen
 
 def _printServerRow(stdscr : curses.window,

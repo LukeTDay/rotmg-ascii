@@ -1,4 +1,5 @@
 from Utils.json.accCredLoader import credential_loader
+from Utils.json.keybindLoader import loadKeybinds
 
 from authentication.getAccessAndClientToken import getAccessAndClientToken
 
@@ -49,7 +50,7 @@ def main(stdscr : curses.window, debugger : Debugger):
     stdscr.bkgd(" ", curses.color_pair(ColorPairs.DEFAULT))
 
     screen = Screen.accountSelect
-    ctx : Context = {"DEBUGGER": debugger}  # shared data screens pass forward
+    ctx : Context = {"DEBUGGER": debugger, "KEYBINDS": loadKeybinds()}  # shared data screens pass forward
     handlers = {
         Screen.accountSelect: drawAccountSelect,
         Screen.enterAccountInfo: enterAccountInfo,

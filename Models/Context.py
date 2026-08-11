@@ -35,8 +35,9 @@ class SelectedSlot(NamedTuple):
 
 class ChatMessage(NamedTuple):
     """One line of chat history - see Renders/GameScreen/chatPanel.py.
-    kind is "self" (this client's own message), "other" (another player), or
-    "world" (a nameless TEXT packet, e.g. a server announcement)."""
+    kind is "self" (this client's own message), "locked" (a locked account),
+    "guild" (a guildmate), "other" (any other player), or "world" (a nameless
+    TEXT packet/synthetic system message, e.g. a server announcement)."""
     kind: str
     sender: str
     text: str
@@ -82,6 +83,9 @@ class Context(TypedDict, total=False):
     CHAT_MESSAGES : Deque[ChatMessage]
     CHAT_INPUT : str
     CHAT_TYPING : bool
+    # Player-configurable keybinds - loaded once at app start (see
+    # Utils/json/keybindLoader.py), consumed via Renders/GameScreen/inputRouter.py.
+    KEYBINDS : Dict[str, str]
 
 
 T = TypeVar("T")

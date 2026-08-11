@@ -8,6 +8,7 @@ import Networking.PacketHelper as PacketHelper
 from Constants import ColorPairs
 from Models.Context import ChatMessage, Context
 from Networking.Ticker import Ticker
+from Renders.GameScreen.inputRouter import isChatOpenKey
 
 # Fraction of the terminal's full width given to the left-side chat panel -
 # the map area gets whatever's left between this and uiPanel's own right-side
@@ -23,11 +24,13 @@ TOP_SECTION_FRACTION = 0.5
 SECTION_DIVIDER_CHAR = "-"
 VERTICAL_DIVIDER_CHAR = "|"
 
-CHAT_KEY = ord("/")
 MAX_MESSAGE_LENGTH = 128
 MAX_HISTORY = 200
 
-_KIND_TO_COLOR_NAME = {"self": "CYAN", "other": "WHITE", "world": "YELLOW"}
+_KIND_TO_COLOR_NAME = {
+    "self": "CYAN", "other": "WHITE", "world": "YELLOW",
+    "guild": "GREEN", "locked": "MAGENTA",
+}
 
 _TOP_PLACEHOLDER_TEXT = "(reserved)"
 _IDLE_INPUT_TEXT = "Press / to chat"
@@ -171,18 +174,29 @@ def drawChatPanel(pad: curses.window, layout: ChatLayout, ctx: Context) -> None:
 
 
 def recordIncomingText(ctx: Context, event, selfObjectId: int) -> None:
-    """Appends one incoming TEXT packet to the chat history. name=="" is a
-    nameless/world message (e.g. a server announcement); otherwise it's a
-    player message, colored differently depending on whether it's this
-    client's own echoed-back message or someone else's."""
+    """Appends one incoming TEXT packet to the chat history. Kind is resolved
+    by priority - self > locked > guild > world > other - so a sender who is
+    both guilded and locked still renders as locked (purple)."""
     history = ctx.setdefault("CHAT_MESSAGES", deque(maxlen=MAX_HISTORY))
-    if event.name == "":
-        kind = "world"
-    elif event.objectId == selfObjectId:
+    if event.objectId == selfObjectId:
         kind = "self"
+    elif event.name in ctx.get("LOCKEDACCOUNTS", set()):
+        kind = "locked"
+    elif event.name in ctx.get("GUILDMEMBERS", set()):
+        kind = "guild"
+    elif event.name == "":
+        kind = "world"
     else:
         kind = "other"
     history.append(ChatMessage(kind=kind, sender=event.name, text=event.cleanText))
+
+
+def pushSystemMessage(ctx: Context, text: str) -> None:
+    """Appends a synthetic client-side message (not from a TEXT packet, e.g.
+    the pause menu's safe-area gate) - kind="world" renders yellow with no
+    sender prefix, same as a real nameless server announcement."""
+    history = ctx.setdefault("CHAT_MESSAGES", deque(maxlen=MAX_HISTORY))
+    history.append(ChatMessage(kind="world", sender="", text=text))
 
 
 def _sendChatMessage(outgoingQueue, text: str) -> None:
@@ -201,14 +215,15 @@ def _sendChatMessage(outgoingQueue, text: str) -> None:
 def handleChatInput(keys: List[int], ctx: Context, outgoingQueue, ticker: Ticker) -> bool:
     """Returns True if this frame's keys were consumed by the chat box (the
     caller should then skip movement/shoot input entirely for the frame) -
-    true both on the frame '/' opens the box and every frame while it stays
-    open. The "/" key stops movement immediately (per user request) by
-    snapping Ticker's target to the current position.
+    true both on the frame the configured openChat key opens the box and
+    every frame while it stays open. Opening chat stops movement immediately
+    (per user request) by snapping Ticker's target to the current position.
     """
     typing = ctx.get("CHAT_TYPING", False)
+    keybinds = ctx.get("KEYBINDS", {})
 
     if not typing:
-        if CHAT_KEY not in keys:
+        if not isChatOpenKey(keys, keybinds):
             return False
         ctx["CHAT_TYPING"] = True
         ctx["CHAT_INPUT"] = ""
