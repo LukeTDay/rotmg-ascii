@@ -9,18 +9,11 @@ from Models.GameState import GameState
 from Models.ProjectileStore import ProjectileStore
 from Utils.json.objectNameLoader import objectRenderInfo
 
-# UNVERIFIED best-effort estimate - no confirmed source for RotMG's real
-# hitbox formula exists in this repo or in either reference bot project
-# (pyrelay/rotmg_mitm_py define the ENEMYHIT/PLAYERHIT packet structs but
-# never actually compute collision geometry). RotMG sprites read as roughly
-# 1 tile wide at Size=100, so half-width ~0.5 tile is used as the base enemy
-# radius here, scaled by the enemy's live SizeStat (falling back to its XML
-# <Size> when the object has no runtime SizeStat) and by <CustomHitbox
-# scale="N"> when the enemy XML overrides its hitbox independent of visual
-# sprite size (~55 mostly-boss enemies). _BULLET_RADIUS_TILES is a small
-# fixed allowance for the shot's own width, not derived from the
-# projectile's own <Size> - keeps this one estimate instead of two.
-# Recalibrate against a real MITM capture if hits look too generous/stingy.
+# Confirmed: enemy hitbox is a fixed 0.5-tile radius regardless of visual
+# <Size>/SizeStat - only an explicit <CustomHitbox scale="N"> (~55 mostly-
+# boss enemies) overrides it. _BULLET_RADIUS_TILES is a small fixed
+# allowance for the shot's own width, not derived from the projectile's own
+# <Size> - keeps this one estimate instead of two.
 _BASE_ENEMY_RADIUS_TILES = 0.5
 _BULLET_RADIUS_TILES = 0.1
 
@@ -109,13 +102,9 @@ class HitTracker:
 
 def _enemyRadiusTiles(obj) -> float:
     info = objectRenderInfo(obj.objectType)
-    baseSize = info.baseSize if info is not None else 100
     hitboxScale = info.hitboxScale if info is not None else None
 
-    liveSize = obj.stats.get(StatTypes.SIZESTAT)
-    sizePercent = liveSize.statValue if liveSize is not None else baseSize
-
-    radius = _BASE_ENEMY_RADIUS_TILES * (sizePercent / 100)
+    radius = _BASE_ENEMY_RADIUS_TILES
     if hitboxScale is not None:
         radius *= hitboxScale
     return radius

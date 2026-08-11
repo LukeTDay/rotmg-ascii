@@ -112,13 +112,12 @@ class ParsedEntity:
     mpCost: int | None = None  # <MpCost>
     mpEndCost: int | None = None  # <MpEndCost>
     description: str = ""  # <Description>
-    # Hit-detection fields (client-side ENEMYHIT geometry - see
-    # Renders/GameScreen/hitDetection.py). baseSize is the object's own
-    # <Size> (percent, 100=normal) - most enemies rely on the live runtime
-    # SizeStat instead, this is just the resting/default value. hitboxScale
-    # is <CustomHitbox scale="N"> when present (~55 mostly-boss enemies
-    # override their hitbox independent of visual sprite size) - None means
-    # no override, use the size-derived radius as-is.
+    # hitboxScale is <CustomHitbox scale="N"> when present (~55 mostly-boss
+    # enemies override their hitbox independent of visual sprite size) - used
+    # by Renders/GameScreen/hitDetection.py's fixed-radius hit check. None
+    # means no override. baseSize is the object's own <Size> (percent,
+    # 100=normal) - visual sprite scale only, confirmed NOT to affect the
+    # actual hitbox (which is a fixed radius regardless of <Size>/SizeStat).
     baseSize: int = 100
     hitboxScale: float | None = None
 
