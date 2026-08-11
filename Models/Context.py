@@ -7,6 +7,7 @@ from Models.TileManager import PerTileIndex, RenderCell
 from Networking.Ticker import Ticker
 from Networking.Listener import Listener
 from Networking.Sender import Sender
+from Networking.PacketLogSettings import PacketLogSettings
 from Debug.Debugger import Debugger
 
 import queue
@@ -83,6 +84,10 @@ class Context(TypedDict, total=False):
     INCOMINGQUEUE : queue.Queue
     OUTGOINGQUEUE : queue.Queue
     DEBUGGER : Debugger
+    # Live, mutable - Renders/PauseMenu/debugOptions.py edits this in place,
+    # so changes apply to an already-open connection's Listener/Sender
+    # immediately (see Networking/PacketLogSettings.py).
+    PACKET_LOG_SETTINGS : PacketLogSettings
     RNG : random.Random
     TILE_CHAR_CACHE : Dict[Tuple[str, int, int, int], str]
     # buildVisibleTiles's reusable scratch buffers (Models/TileManager.py) -
@@ -92,6 +97,11 @@ class Context(TypedDict, total=False):
     # None means nothing selected/peeked yet.
     SELECTED_SLOT : SelectedSlot | None
     PEEKED_OBJECT_TYPE : int | None
+    # The specific live GameObject clicked, when peeking a map click (not an
+    # inventory slot - those have no live objectId, see panelInput.py). Lets
+    # itemInfoPeek.py show a per-instance stat like current/max HP, which
+    # static objectType alone can't (that's shared across every instance).
+    PEEKED_OBJECT_ID : int | None
     # Cycle index into the bottom panel's current bag/portal candidates - reset when the candidate set changes.
     BOTTOM_PANEL_CYCLE_INDEX : int
     BOTTOM_PANEL_CANDIDATE_IDS : FrozenSet[int]

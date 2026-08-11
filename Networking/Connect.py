@@ -22,11 +22,13 @@ def connectToGame(ctx: Context, resultQueue: "queue.Queue") -> None:
         sock.connect((host, PORT))
         connectedTime = int(time.time() * 1000)
 
+        packetLogSettings = required(ctx.get("PACKET_LOG_SETTINGS"), "PACKET_LOG_SETTINGS")
+
         incomingQueue: queue.Queue = queue.Queue()
         outgoingQueue: queue.Queue = queue.Queue()
         ticker = Ticker(connectedTime, debugger)
-        sender = Sender(sock, outgoingQueue, debugger)
-        listener = Listener(sock, incomingQueue, outgoingQueue, ticker, connectedTime, debugger)
+        sender = Sender(sock, outgoingQueue, debugger, packetLogSettings)
+        listener = Listener(sock, incomingQueue, outgoingQueue, ticker, connectedTime, debugger, packetLogSettings)
 
         debugger.info(f"Socket connected to {host}:{PORT}")
         resultQueue.put((True, listener, sender, ticker, incomingQueue, outgoingQueue))

@@ -1,5 +1,6 @@
 from Utils.json.accCredLoader import credential_loader
 from Utils.json.keybindLoader import loadKeybinds
+from Utils.json.debugSettingsLoader import loadDebugSettings
 
 from authentication.getAccessAndClientToken import getAccessAndClientToken
 
@@ -14,6 +15,7 @@ from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
 from Constants.Screen import Screen
 from Constants import ColorPairs
 from Models.Context import Context
+from Networking.PacketLogSettings import PacketLogSettings
 from Debug.Debugger import Debugger
 
 import curses, sys, traceback
@@ -51,7 +53,12 @@ def main(stdscr : curses.window, debugger : Debugger):
     stdscr.bkgd(" ", curses.color_pair(ColorPairs.DEFAULT))
 
     screen = Screen.accountSelect
-    ctx : Context = {"DEBUGGER": debugger, "KEYBINDS": loadKeybinds()}  # shared data screens pass forward
+    logLevel, disabledPackets = loadDebugSettings()
+    ctx : Context = {
+        "DEBUGGER": debugger,
+        "KEYBINDS": loadKeybinds(),
+        "PACKET_LOG_SETTINGS": PacketLogSettings(logLevel, disabledPackets),
+    }  # shared data screens pass forward
     handlers = {
         Screen.accountSelect: drawAccountSelect,
         Screen.enterAccountInfo: enterAccountInfo,

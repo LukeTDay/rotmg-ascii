@@ -21,3 +21,6 @@ class ObjectData:
 
     def __str__(self):
         return "ObjectType: {}\nStatus: \n{}".format(self.objectType, self.status)
+
+    def __repr__(self):
+        return str(self)

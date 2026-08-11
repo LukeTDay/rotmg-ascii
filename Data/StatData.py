@@ -39,8 +39,16 @@ class StatData:
         return StatData(self.statType, self.statValue, self.strStatValue, self.secondaryValue)
 
     def __str__(self):
+        # Named stat first (falls back to the raw number if unknown) - makes
+        # full packet logging (Networking/Listener.py, Networking/Sender.py)
+        # directly greppable by name (e.g. "CONDITIONSTAT") instead of
+        # needing a StatTypes.py lookup by hand for every number.
+        name = self.statToName() or str(self.statType)
         if self.isStringStat():
-            return "statType: {}\nstrStatValue: {}\nsecondaryValue: {}".format(self.statType, self.strStatValue, self.secondaryValue)
+            return "{} ({}): strStatValue={}, secondaryValue={}".format(name, self.statType, self.strStatValue, self.secondaryValue)
         else:
-            return "statType: {}\nstatValue: {}\nsecondaryValue: {}".format(self.statType, self.statValue, self.secondaryValue)
+            return "{} ({}): statValue={}, secondaryValue={}".format(name, self.statType, self.statValue, self.secondaryValue)
+
+    def __repr__(self):
+        return str(self)
 

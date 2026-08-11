@@ -64,6 +64,10 @@ def _handleSlotClick(ctx: Context, outgoingQueue: "queue.Queue", ticker: Ticker,
     (a same-slot swap would be a no-op anyway)."""
     if objectType != -1:
         ctx["PEEKED_OBJECT_TYPE"] = objectType
+        # An inventory/bag slot's item has no live GameObject/objectId of its
+        # own (it's not placed in the world) - clears any map-click peek's id
+        # so itemInfoPeek.py doesn't show a stray live HP reading against it.
+        ctx["PEEKED_OBJECT_ID"] = None
 
     clicked = SelectedSlot(containerId=containerId, slotId=slotId, objectType=objectType, selectedAt=time.time())
     selected = ctx.get("SELECTED_SLOT")
@@ -120,6 +124,7 @@ def handlePanelInput(mouseEvent: Optional[Tuple[int, int, int]], stdscr: curses.
         obj = resolveClickedObject(state, listener.objectId, worldX, worldY, friendsList, guildMembers,
                                     lockedAccounts)
         ctx["PEEKED_OBJECT_TYPE"] = obj.objectType if obj is not None else None
+        ctx["PEEKED_OBJECT_ID"] = obj.objectId if obj is not None else None
         return
 
     if mouseCol < layout.panelStartCol:

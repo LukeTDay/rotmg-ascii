@@ -18,3 +18,6 @@ class FameData:
 
     def __str__(self):
         return f"{self.name}-{self.rank} {self.fame}"
+
+    def __repr__(self):
+        return str(self)

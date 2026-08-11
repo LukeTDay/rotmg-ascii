@@ -17,3 +17,9 @@ class GroundTileData:
 
     def clone(self):
         return GroundTileData(self.x, self.y, self.type)
+
+    def __str__(self):
+        return "x: {}, y: {}, type: {}".format(self.x, self.y, self.type)
+
+    def __repr__(self):
+        return str(self)

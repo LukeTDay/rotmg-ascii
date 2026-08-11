@@ -5,6 +5,8 @@ from typing import Dict, Tuple
 
 import Networking.PacketHelper as PacketHelper
 from Constants.StatTypes import StatTypes
+from Constants.StatusEffects import INVINCIBLE, INVULNERABLE
+from Models.ConditionEffect import hasEffect
 from Models.GameState import GameState
 from Models.ProjectileStore import ProjectileStore
 from Utils.json.objectNameLoader import objectRenderInfo
@@ -35,6 +37,11 @@ _SEND_THRESHOLD_MARGIN_TILES = -0.05
 # claims look consistently early/late once tested live.
 _DEFENSE_FLOOR_FRACTION = 0.30
 
+# Off while full packet logging (Networking/Listener.py, Networking/Sender.py)
+# covers the same ground more generally - flip back on to get this module's
+# own higher-level ENEMYHIT/DAMAGE-match narration instead of raw packets.
+_VERBOSE_HIT_LOGGING = False
+
 
 def _estimateDamageDealt(rawDamage: int, defense: int, armorPiercing: bool) -> int:
     if armorPiercing:
@@ -51,71 +58,67 @@ class _PendingHit:
     radius: float
     enemyObjectType: int
     enemyName: str
+    hpAtSend: int
 
 
 class HitTracker:
     """Diagnostic instrumentation for calibrating the UNVERIFIED
-    _enemyRadiusTiles estimate above: tracks every ENEMYHIT this client
-    sends and matches it against the DAMAGE packet the server should send
-    back (Networking/Packets/Incoming/DamagePacket.py) if it accepted the
-    claim. A confirmed hit (DAMAGE arrives) proves the send-time distance
-    was inside the real hitbox; an unconfirmed one (no DAMAGE within
-    _CONFIRM_TIMEOUT_MS) proves it wasn't - either way, both get logged with
-    distance/radius so the estimate above can be corrected against real
-    numbers instead of another guess.
+    _enemyRadiusTiles estimate above: tracks every ENEMYHIT this client sends
+    and confirms it by watching the target's own HPSTAT drop below its
+    send-time value in a later UPDATE/NEWTICK - not by matching the DAMAGE
+    packet. A real capture (rotmg_mitm_py/mitm.log, 2026-08-11) showed only
+    ~1 DAMAGE per 13 ENEMYHIT sends across the whole log, and the one entry
+    with full field data was a damageAmount=0 curse-effect tick, not a hit
+    ack - DAMAGE isn't a general per-hit confirmation channel, so matching
+    against it was never going to work regardless of timing/key-collision
+    fixes. HP dropping confirms the send-time distance was inside the real
+    hitbox; a timeout with no drop proves it wasn't.
     """
 
-    # Was 500 - real round-trip observed in debug.txt was 18s (one send's
-    # DAMAGE arrived long after its own pending entry had already timed out
-    # and the bulletId had recycled onto unrelated sends), so 500ms never
-    # gave a real confirmation a chance to land. 30s comfortably covers that
-    # with margin while still expiring genuinely-never-confirmed sends.
-    _CONFIRM_TIMEOUT_MS = 30000.0
+    # NEWTICK arrives on the server's own steady tick cadence - much faster
+    # and far more reliable than waiting on the rare DAMAGE packet. 5s is
+    # generous headroom, not a measured round trip like the old 30s was.
+    _CONFIRM_TIMEOUT_MS = 5000.0
 
     def __init__(self):
         self._pending: Dict[Tuple[int, int], _PendingHit] = {}
 
     def recordSent(self, bulletId: int, targetId: int, distance: float, radius: float,
-                    enemyObjectType: int, enemyName: str) -> None:
+                    enemyObjectType: int, enemyName: str, hpAtSend: int) -> None:
         self._pending[(bulletId, targetId)] = _PendingHit(
-            bulletId, targetId, time.time() * 1000, distance, radius, enemyObjectType, enemyName
+            bulletId, targetId, time.time() * 1000, distance, radius, enemyObjectType, enemyName, hpAtSend
         )
 
-    def recordDamage(self, bulletId: int, targetId: int, damageAmount: int, objectId: int, debugger) -> None:
-        # Logged unconditionally, matched or not - 0 confirmations out of
-        # hundreds of sends (even near-dead-center ones) means either DAMAGE
-        # never arrives at all, or its bulletId/targetId don't line up with
-        # what ENEMYHIT sent; this line is what tells the two apart. If
-        # nothing with this tag ever shows up, DAMAGE isn't arriving/being
-        # routed here at all - if it does show up but never as CONFIRMED,
-        # the (bulletId, targetId) key doesn't match ENEMYHIT's.
-        debugger.debug(f"DAMAGE received: bulletId={bulletId} targetId={targetId} damage={damageAmount} objectId={objectId}")
-
-        pending = self._pending.pop((bulletId, targetId), None)
-        if pending is None:
-            # Either genuinely not ours, or ours but already popped by
-            # pruneTimeouts/overwritten by a later send reusing this same
-            # (bulletId, targetId) - bulletId is a small counter that can
-            # recycle well within real DAMAGE round-trip time (confirmed:
-            # one case took 18s). Logged distinctly from "DAMAGE received"
-            # so matched-vs-unmatched is directly greppable.
-            debugger.debug(f"DAMAGE unmatched (no/expired pending ENEMYHIT): bulletId={bulletId} targetId={targetId}")
-            return
-        debugger.debug(
-            f"HIT CONFIRMED: {pending.enemyName} (type={pending.enemyObjectType}) bulletId={bulletId} "
-            f"damage={damageAmount} distanceAtSend={pending.distance:.3f} estimatedRadius={pending.radius:.3f}"
-        )
+    def checkHpDrop(self, targetId: int, newHp: int, debugger) -> None:
+        """Called for every fresh HPSTAT reading (UPDATE/NEWTICK) on any
+        tracked object - confirms every still-pending send against this
+        target whose recorded hpAtSend baseline is higher than newHp. Can't
+        attribute a drop to one specific send when several are pending on the
+        same target at once (e.g. Energy Staff's 2-shot volley all sharing
+        one hpAtSend baseline) - confirms all of them in that case, an
+        accepted over-count for a calibration tool, not something anything
+        downstream relies on being exact.
+        """
+        confirmedKeys = [key for key, p in self._pending.items() if key[1] == targetId and newHp < p.hpAtSend]
+        for key in confirmedKeys:
+            p = self._pending.pop(key)
+            if _VERBOSE_HIT_LOGGING:
+                debugger.debug(
+                    f"HIT CONFIRMED (HP {p.hpAtSend}->{newHp}): {p.enemyName} (type={p.enemyObjectType}) "
+                    f"bulletId={p.bulletId} distanceAtSend={p.distance:.3f} estimatedRadius={p.radius:.3f}"
+                )
 
     def pruneTimeouts(self, debugger) -> None:
         nowMs = time.time() * 1000
         expired = [key for key, p in self._pending.items() if nowMs - p.sentAtMs >= self._CONFIRM_TIMEOUT_MS]
         for key in expired:
             p = self._pending.pop(key)
-            debugger.warning(
-                f"HIT NOT CONFIRMED (no DAMAGE within {self._CONFIRM_TIMEOUT_MS:.0f}ms): "
-                f"{p.enemyName} (type={p.enemyObjectType}) bulletId={p.bulletId} "
-                f"distanceAtSend={p.distance:.3f} estimatedRadius={p.radius:.3f}"
-            )
+            if _VERBOSE_HIT_LOGGING:
+                debugger.warning(
+                    f"HIT NOT CONFIRMED (no HP drop within {self._CONFIRM_TIMEOUT_MS:.0f}ms): "
+                    f"{p.enemyName} (type={p.enemyObjectType}) bulletId={p.bulletId} "
+                    f"distanceAtSend={p.distance:.3f} estimatedRadius={p.radius:.3f}"
+                )
 
 
 def _enemyRadiusTiles(obj) -> float:
@@ -144,8 +147,8 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
     additional enemies later in its lifetime, but never the same enemy twice
     - `Projectile.hitTargetIds` guards that per-shot, not just per-frame.
 
-    Every send is also handed to `hitTracker` (matched against the server's
-    DAMAGE reply by gameScreen.py) - see HitTracker's docstring for why: the
+    Every send is also handed to `hitTracker` (confirmed via HP drop, watched
+    by gameScreen.py) - see HitTracker's docstring for why: the
     hit-radius estimate below is unverified, and bosses in particular
     (confirmed via Dreadstump the Pirate King's XML - Size=100, no
     <CustomHitbox> override) can visually dwarf the radius that formula
@@ -164,6 +167,16 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
                 continue
             info = objectRenderInfo(obj.objectType)
             if info is None or not info.isEnemy:
+                continue
+
+            # Confirmed live: Evil Chicken God sends zero DAMAGE back for its
+            # entire invulnerable window despite in-range ENEMYHIT sends -
+            # skip sending against a target flagged INVINCIBLE/INVULNERABLE
+            # (Constants/StatusEffects.py) instead of wasting a claim the
+            # server will never honor. Re-checked every frame (not cached),
+            # so this naturally starts sending again once the condition clears.
+            condition = obj.stats.get(StatTypes.CONDITIONSTAT)
+            if condition is not None and hasEffect(condition.statValue, INVINCIBLE, INVULNERABLE):
                 continue
 
             enemyPos = obj.renderPos(now)
@@ -190,11 +203,13 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
             packet.kill = kill
             packet.id2 = ownerId
             outgoingQueue.put(packet)
-            hitTracker.recordSent(proj.bulletId, obj.objectId, dist, radius, obj.objectType, info.name)
-            debugger.debug(
-                f"ENEMYHIT sent: {info.name} (type={obj.objectType}) bulletId={proj.bulletId} "
-                f"distance={dist:.3f} estimatedRadius={radius:.3f} kill={kill}"
-            )
+            if liveHp is not None:
+                hitTracker.recordSent(proj.bulletId, obj.objectId, dist, radius, obj.objectType, info.name, liveHp.statValue)
+            if _VERBOSE_HIT_LOGGING:
+                debugger.debug(
+                    f"ENEMYHIT sent: {info.name} (type={obj.objectType}) bulletId={proj.bulletId} "
+                    f"distance={dist:.3f} estimatedRadius={radius:.3f} kill={kill}"
+                )
 
             proj.hitTargetIds.add(obj.objectId)
             hitSomething = True

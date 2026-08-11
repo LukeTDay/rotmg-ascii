@@ -5,6 +5,7 @@ import time
 from typing import Dict, Optional, Set
 
 from Constants import ColorPairs
+from Constants.StatTypes import StatTypes
 from Models.GameState import GameObject, GameState
 from Models.TileManager import _TIER_PRIORITY, classifyObject
 from Renders.GameScreen.uiPanel import PanelLayout, centeredCol
@@ -66,14 +67,18 @@ def _resolveTypeLabel(weaponLabel: str) -> str:
 
 
 def drawItemInfoPeek(pad: curses.window, layout: PanelLayout, peekedObjectType: Optional[int],
-                      projectileMap: Dict[int, OwnerEntry]) -> None:
-    """Draws into the panel's top section: NAME always, plus TYPE/TIER/MP
-    COST/DESCRIPTION/RATE OF FIRE+DAMAGE when peekedObjectType resolves to an
+                      projectileMap: Dict[int, OwnerEntry], state: GameState,
+                      peekedObjectId: Optional[int]) -> None:
+    """Draws into the panel's top section: NAME always, plus HP (current/max)
+    for an enemy peeked via a live map click, plus TYPE/TIER/MP COST/
+    DESCRIPTION/RATE OF FIRE+DAMAGE when peekedObjectType resolves to an
     equipment item (weaponLabel non-empty). Truncates rather than scrolling
     if the section's rows run out - not perfect, just crash-safe.
     `peekedObjectType` is re-resolved (objectRenderInfo/projectileMap) fresh
     every frame by the caller, not cached - see Context.PEEKED_OBJECT_TYPE's
-    doc comment.
+    doc comment. `peekedObjectId` is the specific live GameObject (None for
+    an inventory-slot peek, which has no live instance) - looked up in
+    `state` fresh every frame too, so HP updates live while the peek is open.
     """
     section = layout.topSection
     maxRow = section.startRow + section.height
@@ -103,8 +108,18 @@ def drawItemInfoPeek(pad: curses.window, layout: PanelLayout, peekedObjectType: 
 
     writeLine(info.name or "Unknown")
 
+    if info.isEnemy and peekedObjectId is not None:
+        obj = state.objects.get(peekedObjectId)
+        if obj is not None:
+            hpStat = obj.stats.get(StatTypes.HPSTAT)
+            if hpStat is not None:
+                maxHpStat = obj.stats.get(StatTypes.MAXHPSTAT)
+                maxText = str(maxHpStat.statValue) if maxHpStat is not None else "?"
+                if not writeLine(f"HP: {hpStat.statValue}/{maxText}"):
+                    return
+
     if not info.weaponLabel:
-        return  # not equipment - name is all there is to show
+        return  # not equipment - nothing else to show
 
     if not writeLine(f"TYPE: {_resolveTypeLabel(info.weaponLabel)}"):
         return

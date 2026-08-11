@@ -28,4 +28,4 @@ class TradeItem:
         return "Item: {}, slotType: {}, tradeable: {}, included: {}, enchantment: {}".format(self.item, self.slotType, self.tradeable, self.included, self.enchantment)
 
     def __repr__(self):
-        return str(self.__dict__)
+        return str(self)

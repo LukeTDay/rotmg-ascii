@@ -9,6 +9,7 @@ import Networking.PacketHelper as PacketHelper
 import Crypto.RC4 as RC4
 import Crypto.rotmg_keys as rotmg_keys
 from Data.MoveRecord import MoveRecord
+from Networking.PacketLogSettings import PacketLogSettings
 from Networking.Ticker import Ticker
 
 HEADERSIZE = 5
@@ -27,6 +28,7 @@ class Listener:
         ticker: Ticker,
         connectedTime: int,
         debugger,
+        packetLogSettings: PacketLogSettings,
     ) -> None:
         self.sock = sock
         self.incomingQueue = incomingQueue
@@ -34,6 +36,7 @@ class Listener:
         self.ticker = ticker
         self.connectedTime = connectedTime
         self.debugger = debugger
+        self.packetLogSettings = packetLogSettings
         self.reader = Reader.Reader()
         self.decoder = RC4.RC4(rotmg_keys.INCOMING_KEY)
         self.objectId = -1
@@ -69,6 +72,8 @@ class Listener:
 
             self.reader.reset(header + body)
             packet.read(self.reader)
+            if self.packetLogSettings.shouldLog(packet.type):
+                self.debugger.debug(self.packetLogSettings.formatLine("S>C", packet))
             self._handlePacket(packet)
 
     def stop(self):

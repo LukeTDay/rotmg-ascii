@@ -1,4 +1,5 @@
 from Constants.Screen import Screen
+from Constants.StatTypes import StatTypes
 import Constants.GameIds as GameIds
 
 from Models.Context import Context, PendingReconnectHello, required
@@ -59,9 +60,12 @@ def _isSafeArea(ctx: Context) -> bool:
     return ctx.get("CURR_MAP_NAME", "").strip().lower() in _SAFE_AREAS
 
 
-# The tutorial's last map - reaching it means the tutorial is finished, ahead
-# of char/list's <Account>/<TDone> actually appearing on a later fetch.
-_TUTORIAL_END_MAP = "oryx's kitchen"
+# The map entered right after finishing the tutorial - reaching it means the
+# tutorial is done, ahead of char/list's <Account>/<TDone> actually appearing
+# on a later fetch. Real MAPINFO.name is "Exalted Kitchen" (matches "Exalted
+# Tutorial" for the tutorial map itself) - not "Oryx's Kitchen" as first
+# guessed.
+_TUTORIAL_END_MAP = "exalted kitchen"
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
@@ -336,6 +340,15 @@ def _applyNewCharacterInformation(ctx: Context, event, debugger) -> None:
                   f"({len(parsedChars) - len(addedIds)} already tracked)")
 
 
+def _reportHpIfPresent(hitTracker: HitTracker, objectId: int, stats, debugger) -> None:
+    """Feeds any fresh HPSTAT reading (from an UPDATE's newObjs or a NEWTICK's
+    statuses) to HitTracker.checkHpDrop - see hitDetection.HitTracker's
+    docstring for why HP-drop watching replaced DAMAGE-packet matching."""
+    hpStat = next((s for s in stats if s.statType == StatTypes.HPSTAT), None)
+    if hpStat is not None:
+        hitTracker.checkHpDrop(objectId, hpStat.statValue, debugger)
+
+
 def _applyAccountList(ctx: Context, event) -> None:
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     debugger.info(
@@ -396,6 +409,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                         if obj.status.objectId == listener.objectId:
                             player.parse(obj)
                             ticker.setSpeed(computeSpeed(player.spd, player.spdBoost, player.condition))
+                        _reportHpIfPresent(hitTracker, obj.status.objectId, obj.status.stats, debugger)
                 elif event.type == "NEWTICK":
                     state.applyNewTick(event)
                     for status in event.statuses:
@@ -403,6 +417,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             player.pos = status.pos
                             player.parseStats(status.stats)
                             ticker.setSpeed(computeSpeed(player.spd, player.spdBoost, player.condition))
+                        _reportHpIfPresent(hitTracker, status.objectId, status.stats, debugger)
                 elif event.type == "SERVERPLAYERSHOOT":
                     numShots = max(1, event.bulletCount)
                     _spawnProjectiles(
@@ -420,8 +435,6 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             event.ownerId, event.bulletId, event.startingPos,
                             event.angle, event.angleInc, numShots, event.damage,
                         )
-                elif event.type == "DAMAGE":
-                    hitTracker.recordDamage(event.bulletId, event.targetId, event.damageAmount, event.objectId, debugger)
                 elif event.type == "TEXT":
                     chatPanel.recordIncomingText(ctx, event, listener.objectId)
                 elif event.type == "ACCOUNTLIST":
@@ -466,7 +479,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         inventoryPanel.drawBars(pad, panelLayout, player)
         inventoryPanel.drawInventoryGrid(pad, panelLayout, player)
         peekedObjectType = ctx.setdefault("PEEKED_OBJECT_TYPE", None)
-        itemInfoPeek.drawItemInfoPeek(pad, panelLayout, peekedObjectType, projectileMap)
+        peekedObjectId = ctx.setdefault("PEEKED_OBJECT_ID", None)
+        itemInfoPeek.drawItemInfoPeek(pad, panelLayout, peekedObjectType, projectileMap, state, peekedObjectId)
         bottomPanel.drawBottomPanel(pad, panelLayout, ctx, state, ticker, listener.objectId, friendsList,
                                      guildMembers, lockedAccounts)
         chatPanel.drawChatPanel(pad, chatLayout, ctx)
@@ -599,6 +613,7 @@ def _handleReconnect(ctx: Context, packet) -> None:
     # the new map's panel starts clean instead of pointing at ids that won't
     # resolve to anything once the old GameState is discarded.
     ctx["PEEKED_OBJECT_TYPE"] = None
+    ctx["PEEKED_OBJECT_ID"] = None
     ctx["SELECTED_SLOT"] = None
     ctx["BOTTOM_PANEL_CYCLE_INDEX"] = 0
     ctx["BOTTOM_PANEL_CANDIDATE_IDS"] = frozenset()
@@ -631,6 +646,7 @@ def _directNexus(ctx: Context):
     ctx["CURR_SERVER"] = required(ctx.get("HOME_SERVER"), "HOME_SERVER")
 
     ctx["PEEKED_OBJECT_TYPE"] = None
+    ctx["PEEKED_OBJECT_ID"] = None
     ctx["SELECTED_SLOT"] = None
     ctx["BOTTOM_PANEL_CYCLE_INDEX"] = 0
     ctx["BOTTOM_PANEL_CANDIDATE_IDS"] = frozenset()

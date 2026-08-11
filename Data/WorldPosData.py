@@ -31,6 +31,9 @@ class WorldPosData:
     def __str__(self):
         return "{}, {}".format(round(self.x, 2), round(self.y, 2))
 
+    def __repr__(self):
+        return str(self)
+
     def __add__(self, other):
         pos = self.clone()
         if type(other) == WorldPosData:

@@ -18,6 +18,9 @@ class SlotObjectData:
     def __str__(self):
         return "{} {} {}".format(self.objectId, self.slotId, self.objectType)
 
+    def __repr__(self):
+        return str(self)
+
     def clone(self):
         return SlotObjectData(self.objectId, self.slotId, self.objectType)
         
