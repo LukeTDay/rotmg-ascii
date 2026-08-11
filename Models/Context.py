@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Dict, FrozenSet, NamedTuple, Set, Tuple, TypeVar
+from typing import Deque, TypedDict, List, Dict, FrozenSet, NamedTuple, Set, Tuple, TypeVar
 
 from Models.CharListData import CharListData
 from Models.TileManager import PerTileIndex, RenderCell
@@ -31,6 +31,15 @@ class SelectedSlot(NamedTuple):
     slotId: int
     objectType: int
     selectedAt: float
+
+
+class ChatMessage(NamedTuple):
+    """One line of chat history - see Renders/GameScreen/chatPanel.py.
+    kind is "self" (this client's own message), "other" (another player), or
+    "world" (a nameless TEXT packet, e.g. a server announcement)."""
+    kind: str
+    sender: str
+    text: str
 
 
 class Context(TypedDict, total=False):
@@ -69,6 +78,10 @@ class Context(TypedDict, total=False):
     BACKGROUND_TEXTURE_CACHE : List[Tuple[int, int, str, int]]
     BACKGROUND_TEXTURE_DIMS : Tuple[int, int]
     BACKGROUND_TEXTURE_LAST_REGEN : float
+    # Chat panel state - see Renders/GameScreen/chatPanel.py.
+    CHAT_MESSAGES : Deque[ChatMessage]
+    CHAT_INPUT : str
+    CHAT_TYPING : bool
 
 
 T = TypeVar("T")

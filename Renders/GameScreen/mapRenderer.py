@@ -13,6 +13,7 @@ from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles, newPerTileI
 from Networking.Listener import Listener
 from Networking.Ticker import Ticker
 
+from Renders.GameScreen.chatPanel import CHAT_PANEL_WIDTH_FRACTION
 from Renders.GameScreen.uiPanel import PANEL_WIDTH_FRACTION
 
 # Terminal character cells are ~2x taller than wide; scaleX vs scaleY uses
@@ -27,8 +28,8 @@ MIN_SCALE_Y = 1  # Smallest per-tile size; growing view radius takes priority ov
 _SLOW_DRAW_FRAME_THRESHOLD_MS = 16.7
 
 
-def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
-    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius).
+def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int, int]:
+    """Returns (scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius, mapStartCol).
 
     A bigger terminal grows `viewRadius` (more world visible) first, up to
     VIEW_RADIUS_TILES; only once that cap is hit does leftover space go
@@ -36,9 +37,13 @@ def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
     """
     maxY, maxX = stdscr.getmaxyx()
     mapAreaRows = maxY
-    # Matches uiPanel.computePanelLayout's dividerCol formula exactly, so the
-    # map area and the panel always agree on where the boundary column is.
-    mapAreaCols = max(1, maxX - round(maxX * PANEL_WIDTH_FRACTION))
+    # Matches chatPanel.computeChatLayout's mapStartCol and
+    # uiPanel.computePanelLayout's dividerCol formulas exactly, so the map
+    # area and both side panels always agree on where their boundaries are.
+    leftPanelWidth = max(1, round(maxX * CHAT_PANEL_WIDTH_FRACTION) - 1)
+    mapStartCol = leftPanelWidth + 1
+    rightDividerCol = maxX - round(maxX * PANEL_WIDTH_FRACTION)
+    mapAreaCols = max(1, rightDividerCol - mapStartCol)
 
     minScaleX = max(1, round(MIN_SCALE_Y * CHAR_ASPECT_RATIO))
     radiusFromRows = max(0, mapAreaRows // MIN_SCALE_Y - 1) // 2
@@ -50,40 +55,41 @@ def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
     maxScaleYFromCols = int(mapAreaCols // (windowSize * CHAR_ASPECT_RATIO))
     scaleY = max(1, min(maxScaleYFromRows, maxScaleYFromCols))
     scaleX = max(1, round(scaleY * CHAR_ASPECT_RATIO))
-    return scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius
+    return scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius, mapStartCol
 
 
 def screenToWorld(stdscr: curses.window, ticker: Ticker, screenRow: int, screenCol: int) -> Optional[Tuple[float, float]]:
     """Inverse of _drawMap's tile placement: converts a mouse screen row/col
     (the game pad has no scroll offset) into a world (x, y) position. Returns
-    None if outside the map area."""
+    None if outside the map area (including inside either side panel)."""
     if ticker.pos is None:
         return None
-    scaleX, scaleY, mapAreaRows, mapAreaCols, _ = computeScale(stdscr)
-    if not (0 <= screenRow < mapAreaRows and 0 <= screenCol < mapAreaCols):
+    scaleX, scaleY, mapAreaRows, mapAreaCols, _, mapStartCol = computeScale(stdscr)
+    relCol = screenCol - mapStartCol
+    if not (0 <= screenRow < mapAreaRows and 0 <= relCol < mapAreaCols):
         return None
     playerTileX, playerTileY = math.floor(ticker.pos.x), math.floor(ticker.pos.y)
-    worldX = playerTileX + (screenCol - mapAreaCols // 2) / scaleX
+    worldX = playerTileX + (relCol - mapAreaCols // 2) / scaleX
     worldY = playerTileY + (screenRow - mapAreaRows // 2) / scaleY
     return worldX, worldY
 
 
 def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, mapAreaCols: int,
-             visibleTiles, playerTileX: int, playerTileY: int) -> None:
+             visibleTiles, playerTileX: int, playerTileY: int, mapStartCol: int) -> None:
     centerRow = mapAreaRows // 2
     centerCol = mapAreaCols // 2
     for (tileX, tileY), cell in visibleTiles.items():
         dx, dy = tileX - playerTileX, tileY - playerTileY
         screenRow0 = centerRow + dy * scaleY
-        screenCol0 = centerCol + dx * scaleX
+        screenCol0 = mapStartCol + centerCol + dx * scaleX
         pairNum = ColorPairs.MAP_COLOR_TO_PAIR.get(cell.colorName, ColorPairs.MAP_WHITE)
         attr = curses.color_pair(pairNum)
         for r in range(scaleY):
             row = screenRow0 + r
             if not (0 <= row < mapAreaRows):
                 continue
-            colStart = max(0, screenCol0)
-            colEnd = min(mapAreaCols, screenCol0 + scaleX)
+            colStart = max(mapStartCol, screenCol0)
+            colEnd = min(mapStartCol + mapAreaCols, screenCol0 + scaleX)
             if colEnd <= colStart:
                 continue
             try:
@@ -127,7 +133,7 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     perTileIndex = ctx.setdefault("PER_TILE_INDEX", newPerTileIndex())
     visibleTilesBuffer = ctx.setdefault("VISIBLE_TILES_BUFFER", {})
 
-    scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius = computeScale(stdscr)
+    scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius, mapStartCol = computeScale(stdscr)
 
     frameStart = time.perf_counter()
     visibleTiles = buildVisibleTiles(
@@ -141,7 +147,7 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     eraseMs = (time.perf_counter() - eraseStart) * 1000
 
     drawStart = time.perf_counter()
-    _drawMap(pad, scaleX, scaleY, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY)
+    _drawMap(pad, scaleX, scaleY, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY, mapStartCol)
     drawMs = (time.perf_counter() - drawStart) * 1000
 
     totalMs = (time.perf_counter() - frameStart) * 1000

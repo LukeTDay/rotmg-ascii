@@ -13,7 +13,7 @@ from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
-from Renders.GameScreen import bottomPanel, inventoryPanel, itemInfoPeek, uiPanel
+from Renders.GameScreen import bottomPanel, chatPanel, inventoryPanel, itemInfoPeek, uiPanel
 from Renders.GameScreen.hitDetection import HitTracker, checkProjectileHits
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
@@ -338,6 +338,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                         )
                 elif event.type == "DAMAGE":
                     hitTracker.recordDamage(event.bulletId, event.targetId, event.damageAmount, event.objectId, debugger)
+                elif event.type == "TEXT":
+                    chatPanel.recordIncomingText(ctx, event, listener.objectId)
                 elif event.type == "ACCOUNTLIST":
                     _applyAccountList(ctx, event)
                 elif event.type == "INVRESULT":
@@ -372,6 +374,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         # not once per drawing step.
         maxY, maxX = stdscr.getmaxyx()
         panelLayout = uiPanel.computePanelLayout(maxY, maxX)
+        chatLayout = chatPanel.computeChatLayout(maxY, maxX)
         friendsList = ctx.get("FRIENDSLIST", set())
         guildMembers = ctx.get("GUILDMEMBERS", set())
         lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
@@ -382,6 +385,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         itemInfoPeek.drawItemInfoPeek(pad, panelLayout, peekedObjectType, projectileMap)
         bottomPanel.drawBottomPanel(pad, panelLayout, ctx, state, ticker, listener.objectId, friendsList,
                                      guildMembers, lockedAccounts)
+        chatPanel.drawChatPanel(pad, chatLayout, ctx)
         determineRefreshWindow(stdscr, pad, 0)
         drawFrameMs = (time.time() - drawFrameStart) * 1000
 
@@ -390,13 +394,18 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         mouseEvent = getFrameMouseEvent(keys)
         keysDrainMs = (time.time() - keysDrainStart) * 1000
 
+        chatInputStart = time.time()
+        isTyping = chatPanel.handleChatInput(keys, ctx, outgoingQueue, ticker)
+        chatInputMs = (time.time() - chatInputStart) * 1000
+
         movementStart = time.time()
-        moveDirection = handleMovementInput(keys, ticker, state)
+        moveDirection = None if isTyping else handleMovementInput(keys, ticker, state)
         movementMs = (time.time() - movementStart) * 1000
 
         shootStart = time.time()
-        handleShootInput(keys, stdscr, ticker, player, outgoingQueue, shootState, moveDirection, debugger,
-                          projectileMap, projectiles, mouseEvent)
+        if not isTyping:
+            handleShootInput(keys, stdscr, ticker, player, outgoingQueue, shootState, moveDirection, debugger,
+                              projectileMap, projectiles, mouseEvent)
         shootMs = (time.time() - shootStart) * 1000
 
         panelInputStart = time.time()
@@ -423,8 +432,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             debugger.warning(
                 f"Frame took {elapsed * 1000:.1f}ms, over the {FRAME_INTERVAL_SECONDS * 1000:.1f}ms budget "
                 f"(queueDrain={queueDrainMs:.1f}ms drawFrame={drawFrameMs:.1f}ms keysDrain={keysDrainMs:.1f}ms "
-                f"movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms panelInput={panelInputMs:.1f}ms "
-                f"gc={gcMs:.1f}ms)"
+                f"chatInput={chatInputMs:.1f}ms movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms "
+                f"panelInput={panelInputMs:.1f}ms gc={gcMs:.1f}ms)"
             )
         time.sleep(max(0.0, remaining))
 
