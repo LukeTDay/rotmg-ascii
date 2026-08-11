@@ -21,13 +21,23 @@ from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
 
 from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds
 
-import curses, threading, queue, time
+import curses, gc, threading, queue, time
 
 # Target rate, not a fixed delay - the loop sleeps only the remainder after
 # its own work. Lowered from 120 to 60: actual per-frame work left almost no
 # headroom against the 120fps budget, tripping the over-budget warning
 # constantly - movement/network don't depend on render cadence anyway.
 FRAME_INTERVAL_SECONDS = 1 / 60
+
+# buildVisibleTiles/shootInput rebuild dicts/lists/packets from scratch every
+# frame and every shot, which trips Python's cyclic GC (see Debug/debug.txt
+# analysis) at essentially random points relative to the render loop, each
+# costing 10-40x a normal frame. GameObject/GameState/ProjectileStore hold no
+# back-references, so real reference cycles are rare here - the automatic
+# collector was mostly doing wasted scanning. Disabling it and collecting on
+# our own schedule (below) turns an unpredictable per-frame stall into one
+# bounded pause every 60s, run after this frame's game-affecting work is done.
+GC_COLLECT_INTERVAL_SECONDS = 60.0
 
 # Returned by _handshake/_connectedLoop when a RECONNECT was just handled -
 # loop back through _establishConnection instead of leaving gameScreen.
@@ -40,9 +50,12 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
     debugger.info("Entering gameScreen")
 
     stdscr.erase()
-    # Unlike other screens' 1500-row pads, this one never scrolls and erases
-    # every frame - 500 rows keeps the same column-count safety margin cheaper.
-    pad = curses.newpad(500, 500)
+    # Sized to the terminal, not a fixed oversized constant: this pad never
+    # scrolls and erases every frame (see mapRenderer.drawFrame), so a bigger
+    # pad than the terminal just means erase() clears cells nothing shows -
+    # _syncPadSize keeps it matched to the terminal across resizes too.
+    maxY, maxX = stdscr.getmaxyx()
+    pad = curses.newpad(max(1, maxY), max(1, maxX))
 
     pad.keypad(True)
     pad.clrtobot()
@@ -68,6 +81,14 @@ def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
         return result
 
 
+def _syncPadSize(stdscr: curses.window, pad: curses.window) -> None:
+    """Resizes `pad` to match the terminal whenever it's changed, so a full
+    pad.erase() never clears more cells than the terminal actually shows."""
+    maxY, maxX = stdscr.getmaxyx()
+    if pad.getmaxyx() != (maxY, maxX):
+        pad.resize(max(1, maxY), max(1, maxX))
+
+
 def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen | None:
     debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
     resultQueue: queue.Queue = queue.Queue()
@@ -76,6 +97,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
 
     buf = []
     while connectThread.is_alive():
+        _syncPadSize(stdscr, pad)
         pad.move(0, 0)
         pad.clrtobot()
         drawBackgroundTexture(stdscr, pad, ctx)
@@ -147,6 +169,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
     mapName = ""
 
     while True:
+        _syncPadSize(stdscr, pad)
         pad.move(0, 0)
         pad.clrtobot()
         drawBackgroundTexture(stdscr, pad, ctx)
@@ -254,8 +277,16 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
     projectileMap = projectileMapLoader()
     shootState = AutoFireState()
 
+    # See GC_COLLECT_INTERVAL_SECONDS above - confirmed via debug.txt that
+    # automatic cyclic GC was the source of the periodic drawFrame spikes.
+    gc.disable()
+    lastGcCollectTime = time.time()
+    debugger.info(f"Cyclic GC disabled for this connection; collecting manually every "
+                  f"{GC_COLLECT_INTERVAL_SECONDS:.0f}s instead")
+
     while True:
         frameStart = time.time()
+        _syncPadSize(stdscr, pad)
         queueDrainStart = frameStart
         try:
             while True:
@@ -353,6 +384,16 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                           projectileMap, friendsList, guildMembers, lockedAccounts)
         panelInputMs = (time.time() - panelInputStart) * 1000
 
+        # Run after this frame's packets are already sent/drawn, so the
+        # pause never delays a movement/shoot packet - only this frame's sleep.
+        gcMs = 0.0
+        if time.time() - lastGcCollectTime >= GC_COLLECT_INTERVAL_SECONDS:
+            gcStart = time.time()
+            collected = gc.collect()
+            gcMs = (time.time() - gcStart) * 1000
+            lastGcCollectTime = time.time()
+            debugger.debug(f"Manual gc.collect() took {gcMs:.1f}ms, collected {collected} unreachable objects")
+
         elapsed = time.time() - frameStart
         remaining = FRAME_INTERVAL_SECONDS - elapsed
         if remaining < 0:
@@ -362,7 +403,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             debugger.warning(
                 f"Frame took {elapsed * 1000:.1f}ms, over the {FRAME_INTERVAL_SECONDS * 1000:.1f}ms budget "
                 f"(queueDrain={queueDrainMs:.1f}ms drawFrame={drawFrameMs:.1f}ms keysDrain={keysDrainMs:.1f}ms "
-                f"movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms panelInput={panelInputMs:.1f}ms)"
+                f"movementInput={movementMs:.1f}ms shootInput={shootMs:.1f}ms panelInput={panelInputMs:.1f}ms "
+                f"gc={gcMs:.1f}ms)"
             )
         time.sleep(max(0.0, remaining))
 

@@ -1,14 +1,15 @@
 import curses
 import math
 import random
+import time
 from typing import Optional, Tuple
 
 from Constants import ColorPairs
-from Models.Context import Context
+from Models.Context import Context, required
 from Models.GameState import GameState
 from Models.PlayerData import PlayerData
 from Models.ProjectileStore import ProjectileStore
-from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles
+from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles, newPerTileIndex
 from Networking.Listener import Listener
 from Networking.Ticker import Ticker
 
@@ -20,6 +21,10 @@ CHAR_ASPECT_RATIO = 2.0
 
 
 MIN_SCALE_Y = 1  # Smallest per-tile size; growing view radius takes priority over this.
+
+# Mirrors gameScreen.FRAME_INTERVAL_SECONDS's ~16.7ms budget - drawFrame alone
+# eating the whole frame budget is worth a breakdown in debug.txt.
+_SLOW_DRAW_FRAME_THRESHOLD_MS = 16.7
 
 
 def computeScale(stdscr: curses.window) -> Tuple[int, int, int, int, int]:
@@ -113,15 +118,37 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     guildMembers = ctx.get("GUILDMEMBERS", set())
     lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
     # Owned by ctx, not recreated per-frame: TILE_CHAR_CACHE remembers each
-    # multi-glyph tile's picked variant so it doesn't re-roll every redraw.
+    # multi-glyph tile's picked variant so it doesn't re-roll every redraw;
+    # PER_TILE_INDEX/VISIBLE_TILES_BUFFER are buildVisibleTiles's reusable
+    # scratch containers (see its docstring) - cleared and refilled each call
+    # instead of reallocated, to cut per-frame GC pressure.
     rng = ctx.setdefault("RNG", random.Random())
     charCache = ctx.setdefault("TILE_CHAR_CACHE", {})
+    perTileIndex = ctx.setdefault("PER_TILE_INDEX", newPerTileIndex())
+    visibleTilesBuffer = ctx.setdefault("VISIBLE_TILES_BUFFER", {})
 
     scaleX, scaleY, mapAreaRows, mapAreaCols, viewRadius = computeScale(stdscr)
+
+    frameStart = time.perf_counter()
     visibleTiles = buildVisibleTiles(
         state, projectiles, playerTileX, playerTileY, listener.objectId, friendsList, guildMembers, lockedAccounts,
-        rng, charCache, viewRadius,
+        rng, charCache, perTileIndex, visibleTilesBuffer, viewRadius,
     )
+    buildMs = (time.perf_counter() - frameStart) * 1000
 
+    eraseStart = time.perf_counter()
     pad.erase()
+    eraseMs = (time.perf_counter() - eraseStart) * 1000
+
+    drawStart = time.perf_counter()
     _drawMap(pad, scaleX, scaleY, mapAreaRows, mapAreaCols, visibleTiles, playerTileX, playerTileY)
+    drawMs = (time.perf_counter() - drawStart) * 1000
+
+    totalMs = (time.perf_counter() - frameStart) * 1000
+    if totalMs > _SLOW_DRAW_FRAME_THRESHOLD_MS:
+        # Only logged over threshold, not every frame - mirrors gameScreen's
+        # own "Frame took..." overrun breakdown, one level down.
+        required(ctx.get("DEBUGGER"), "DEBUGGER").warning(
+            f"drawFrame took {totalMs:.1f}ms (buildVisibleTiles={buildMs:.1f}ms erase={eraseMs:.1f}ms "
+            f"drawMap={drawMs:.1f}ms, {len(visibleTiles)} visible tiles)"
+        )

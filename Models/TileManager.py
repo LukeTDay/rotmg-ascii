@@ -157,21 +157,40 @@ def _pickChar(chars: List[str], rng: random.Random, charCache: Dict[Tuple[str, i
     return choice
 
 
+PerTileIndex = Dict[Tier, Dict[Tuple[int, int], List[Union[GameObject, Projectile]]]]
+
+
+def newPerTileIndex() -> PerTileIndex:
+    """Caller-owned buffer for buildVisibleTiles's `perTile` param - build once,
+    reuse every frame (see buildVisibleTiles's docstring for why)."""
+    return {tier: {} for tier in Tier}
+
+
 def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTileX: int, playerTileY: int,
                        listenerObjectId: int, friendsList: Set[str], guildMembers: Set[str],
                        lockedAccounts: Set[str], rng: random.Random,
                        charCache: Dict[Tuple[str, int, int, int], str],
+                       perTile: PerTileIndex, visible: Dict[Tuple[int, int], RenderCell],
                        viewRadius: int = VIEW_RADIUS_TILES) -> Dict[Tuple[int, int], RenderCell]:
     """Rebuilt fresh every frame from GameState/ProjectileStore rather than
     incrementally synced, to avoid duplicating GameState's own bookkeeping
     and risking drift. Cheap since `viewRadius` keeps the window small.
+
+    `perTile`/`visible` are caller-owned (see newPerTileIndex) and cleared
+    in place rather than reallocated - the view window's tile keys shift
+    every frame as the player moves, so reusing entries key-for-key isn't
+    possible, but reusing the container objects themselves still avoids
+    re-allocating 8 dicts + a result dict 60x/sec. The bigger allocation
+    source, one RenderCell per visible tile, is deduplicated separately in
+    _resolveCell via _internRenderCell instead, since most tiles repeat the
+    same handful of floor glyphs.
     """
     minX, maxX = playerTileX - viewRadius, playerTileX + viewRadius
     minY, maxY = playerTileY - viewRadius, playerTileY + viewRadius
 
-    perTile: Dict[Tier, Dict[Tuple[int, int], List[Union[GameObject, Projectile]]]] = {
-        tier: {} for tier in Tier
-    }
+    for tierDict in perTile.values():
+        tierDict.clear()
+    visible.clear()
 
     now = time.time()
     for obj in state.objects.values():
@@ -203,7 +222,6 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
             continue
         perTile[Tier.PROJECTILE].setdefault((tileX, tileY), []).append(proj)
 
-    visible: Dict[Tuple[int, int], RenderCell] = {}
     for tileX in range(minX, maxX + 1):
         for tileY in range(minY, maxY + 1):
             key = (tileX, tileY)
@@ -213,8 +231,24 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
     return visible
 
 
+_renderCellCache: Dict[Tuple[str, str], RenderCell] = {}
+
+
+def _internRenderCell(char: str, colorName: str) -> RenderCell:
+    """RenderCell is frozen/immutable and its value space is small (bounded by
+    renderMap.json's distinct char/color pairs) - interning avoids allocating
+    a fresh instance for every one of a frame's ~900 tiles when the
+    overwhelming majority repeat the same handful of floor glyphs."""
+    key = (char, colorName)
+    cell = _renderCellCache.get(key)
+    if cell is None:
+        cell = RenderCell(char=char, colorName=colorName)
+        _renderCellCache[key] = cell
+    return cell
+
+
 def _resolveCell(key: Tuple[int, int],
-                  perTile: Dict[Tier, Dict[Tuple[int, int], List[Union[GameObject, Projectile]]]],
+                  perTile: PerTileIndex,
                   state: GameState, friendsList: Set[str], guildMembers: Set[str],
                   lockedAccounts: Set[str], rng: random.Random,
                   charCache: Dict[Tuple[str, int, int, int], str]) -> Optional[RenderCell]:
@@ -228,12 +262,12 @@ def _resolveCell(key: Tuple[int, int],
             winner = max(occupants, key=lambda p: p.damage)
             info = objectRenderInfo(winner.visualObjectType) if winner.visualObjectType is not None else None
             color = info.color if info is not None else _PROJECTILE_FALLBACK_COLOR
-            return RenderCell(char=_PROJECTILE_CHAR, colorName=color)
+            return _internRenderCell(_PROJECTILE_CHAR, color)
         winnerObj = occupants[0]
         if tier == Tier.SELF:
             # Fixed '@' regardless of class sprite - always screen-center, reads as "you".
             info = objectRenderInfo(winnerObj.objectType)
-            return RenderCell(char=_SELF_CHAR, colorName=info.color if info is not None else _SELF_FALLBACK_COLOR)
+            return _internRenderCell(_SELF_CHAR, info.color if info is not None else _SELF_FALLBACK_COLOR)
         if tier == Tier.OTHER_PLAYER:
             # Fixed '@' colored by relationship, not class sprite.
             relationship = otherPlayerRelationship(winnerObj, friendsList, guildMembers, lockedAccounts)
@@ -241,24 +275,24 @@ def _resolveCell(key: Tuple[int, int],
                 "GUILD": _GUILD_COLOR,
                 "FRIEND": _FRIEND_COLOR,
             }.get(relationship, _LOCKED_FALLBACK_COLOR)
-            return RenderCell(char=_OTHER_PLAYER_CHAR, colorName=color)
+            return _internRenderCell(_OTHER_PLAYER_CHAR, color)
         info = objectRenderInfo(winnerObj.objectType)
         if info is None or not info.chars:
             return None
         char = _pickChar(info.chars, rng, charCache, "obj", key[0], key[1], winnerObj.objectType)
-        return RenderCell(char=char, colorName=info.color)
+        return _internRenderCell(char, info.color)
 
     tile = state.tiles.get(key)
     if tile is None:
         return None
     groundType = groundIdToData(tile.type)
     if groundType is not None and groundType.noWalk:
-        return RenderCell(char=_NOWALK_GROUND_CHAR, colorName=_NOWALK_GROUND_COLOR)
+        return _internRenderCell(_NOWALK_GROUND_CHAR, _NOWALK_GROUND_COLOR)
     ground = groundRenderInfo(tile.type)
     if groundType is not None and groundType.sink:
         color = ground.color if ground is not None else _LIQUID_FALLBACK_COLOR
-        return RenderCell(char=_LIQUID_GROUND_CHAR, colorName=color)
+        return _internRenderCell(_LIQUID_GROUND_CHAR, color)
     if ground is None or not ground.chars:
         return None
     char = _pickChar(ground.chars, rng, charCache, "ground", key[0], key[1], tile.type)
-    return RenderCell(char=char, colorName=ground.color)
+    return _internRenderCell(char, ground.color)

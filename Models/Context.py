@@ -1,6 +1,7 @@
 from typing import TypedDict, List, Dict, FrozenSet, NamedTuple, Set, Tuple, TypeVar
 
 from Models.CharListData import CharListData
+from Models.TileManager import PerTileIndex, RenderCell
 
 from Networking.Ticker import Ticker
 from Networking.Listener import Listener
@@ -52,6 +53,10 @@ class Context(TypedDict, total=False):
     DEBUGGER : Debugger
     RNG : random.Random
     TILE_CHAR_CACHE : Dict[Tuple[str, int, int, int], str]
+    # buildVisibleTiles's reusable scratch buffers (Models/TileManager.py) -
+    # cleared and refilled each frame instead of reallocated.
+    PER_TILE_INDEX : PerTileIndex
+    VISIBLE_TILES_BUFFER : Dict[Tuple[int, int], RenderCell]
     # None means nothing selected/peeked yet.
     SELECTED_SLOT : SelectedSlot | None
     PEEKED_OBJECT_TYPE : int | None
