@@ -10,7 +10,7 @@ from Models.Context import Context
 from Models.GameState import GameObject, GameState
 from Models.TileManager import Tier, classifyObject
 from Networking.Ticker import Ticker
-from Renders.GameScreen.inventoryPanel import CELL_GAP, _cellContent, _cellWidthAndStride
+from Renders.GameScreen.inventoryPanel import CELL_GAP, GRID_COLS, _cellContent, _cellWidthAndStride
 from Renders.GameScreen.uiPanel import PanelLayout, centeredCol, drawGridDividers, evenlySpacedRows
 from Utils.json.objectNameLoader import objectRenderInfo
 
@@ -38,6 +38,18 @@ _BAG_GRID_ROW_OFFSET = 1
 
 _DEFAULT_MAP_ROW_OFFSET = 0
 _DEFAULT_PLAYERS_ROW_OFFSET = 1
+# 1 blank row below "Players: N" before the nearby-players grid starts -
+# same "1 blank row of spacing below the last one" convention as
+# inventoryPanel._GRID_TOP_OFFSET.
+_NEARBY_PLAYERS_GRID_TOP_OFFSET = _DEFAULT_PLAYERS_ROW_OFFSET + 2
+
+# 2 wide bars instead of inventory's 4 narrow cells, per user request - each
+# bar spans this many adjacent inventory columns merged together (so a bar's
+# x-position/width is still derived from inventoryPanel's own column math,
+# just fewer/wider columns), landing exactly on inventory's own internal
+# column-2 divider rather than an independent 2-column split of the panel.
+_NEARBY_PLAYERS_GRID_COLS = 2
+_NEARBY_PLAYERS_COLS_PER_BAR = GRID_COLS // _NEARBY_PLAYERS_GRID_COLS
 
 
 @dataclass(frozen=True)
@@ -148,6 +160,62 @@ def _nearbyPlayerCount(state: GameState) -> int:
     return sum(1 for obj in state.objects.values() if ClassIds.idToClass(obj.objectType) is not None)
 
 
+# Nearby-player-grid coloring, per user request: base color is purely
+# seasonal-or-not (reads the live SEASONAL wire stat directly - a nearby
+# player isn't in this client's own char/list, unlike CharSelect's
+# isSeasonal flag, which only covers the logged-in account's own
+# characters); locked/friend/guild don't get their own colors, they just
+# bold whichever base color already applies. Locked/friend/guild reuse the
+# exact account-id/name lookups Models/TileManager.py's
+# otherPlayerRelationship already established for the map renderer.
+_DEFAULT_COLOR_NAME = "YELLOW"
+_SEASONAL_COLOR_NAME = "GREEN"
+
+
+def _nearbyPlayerAttr(obj: GameObject, name: str, guildMembers: Set[str], friendsList: Set[str],
+                       lockedAccounts: Set[str]) -> int:
+    seasonalStat = obj.stats.get(StatTypes.SEASONAL)
+    isSeasonal = seasonalStat is not None and bool(seasonalStat.statValue)
+    colorName = _SEASONAL_COLOR_NAME if isSeasonal else _DEFAULT_COLOR_NAME
+    attr = curses.color_pair(ColorPairs.MAP_COLOR_TO_PAIR[colorName])
+
+    accountIdStat = obj.stats.get(StatTypes.ACCOUNTIDSTAT)
+    accountId = accountIdStat.strStatValue if accountIdStat is not None else None
+    isLocked = accountId is not None and accountId in lockedAccounts
+    if isLocked or name in friendsList or name in guildMembers:
+        attr |= curses.A_BOLD
+    return attr
+
+
+def _nearbyPlayerNames(state: GameState, ticker: Ticker, listenerObjectId: int, guildMembers: Set[str],
+                        friendsList: Set[str], lockedAccounts: Set[str]) -> List[Tuple[str, int]]:
+    """(name, curses attr) for every OTHER player-class GameObject this
+    client currently knows about (the local player is excluded - no point
+    listing yourself), closest-to-farthest from ticker.pos so the most
+    relevant names are the ones kept if there isn't room for all of them.
+    Recomputed fresh every frame - state.objects.values() is already fully
+    scanned unthrottled for _nearbyPlayerCount right below this in
+    drawBottomPanel, so sorting the (usually much smaller) player subset on
+    top costs little in comparison.
+    """
+    now = time.time()
+    players = [obj for obj in state.objects.values()
+               if obj.objectId != listenerObjectId and ClassIds.idToClass(obj.objectType) is not None]
+    if ticker.pos is not None:
+        players.sort(key=lambda o: ticker.pos.dist(o.renderPos(now)))
+
+    entries = []
+    for obj in players:
+        nameStat = obj.stats.get(StatTypes.NAMESTAT)
+        if nameStat is not None and nameStat.strStatValue:
+            # NAMESTAT carries "Name,Title" when a title is equipped - only
+            # the name (index 0) belongs in this list, and is what's checked
+            # against guildMembers/friendsList below too (titled or not).
+            name = nameStat.strStatValue.split(",")[0]
+            entries.append((name, _nearbyPlayerAttr(obj, name, guildMembers, friendsList, lockedAccounts)))
+    return entries
+
+
 def _contentStartRow(layout: PanelLayout) -> int:
     """First usable row inside the bottom section, just below its top
     section-divider row (drawn by uiPanel.drawPanelFrame) - same pattern as
@@ -231,6 +299,44 @@ def drawBottomPanel(pad: curses.window, layout: PanelLayout, ctx: Context, state
                    layout.panelWidth, defaultAttr)
         _writeLine(pad, startRow + _DEFAULT_PLAYERS_ROW_OFFSET, centeredCol(layout, len(playerCountText)),
                    playerCountText, layout.panelWidth, defaultAttr)
+
+        # Nearby-player-names grid: 2 wide bars (not inventory's 4 narrow
+        # cells) whose x-positions are still derived from inventoryPanel's
+        # own gridStartCol/colStride - per user request, so the bar boundary
+        # lands exactly on one of inventory's own column dividers and the
+        # two grids still line up visually despite being in different
+        # sections. The grid's SIZE is fixed to whatever fits in the
+        # available space (maxRows x _NEARBY_PLAYERS_GRID_COLS) regardless
+        # of how many names there actually are - same "always-drawn
+        # structure, filled in with whatever content exists" relationship inventoryPanel's own
+        # grid has with player.inv (empty slots still draw, just blank).
+        topBound = startRow + _NEARBY_PLAYERS_GRID_TOP_OFFSET
+        bottomBound = layout.bottomSection.startRow + layout.bottomSection.height - 1
+        maxRows = max(0, bottomBound - topBound + 1)  # tightest (stride=1) fit - see evenlySpacedRows
+        if maxRows > 0:
+            entries = _nearbyPlayerNames(state, ticker, listenerObjectId, guildMembers, friendsList, lockedAccounts)
+            rowStart, rowStride = evenlySpacedRows(topBound, bottomBound, maxRows)
+            _, colStride = _cellWidthAndStride(layout.panelWidth)
+            gridStartCol = layout.panelStartCol
+            barStride = colStride * _NEARBY_PLAYERS_COLS_PER_BAR
+            barWidth = barStride - CELL_GAP
+            drawGridDividers(pad, gridStartCol, rowStart, rowStride, barStride, CELL_GAP, maxRows,
+                              _NEARBY_PLAYERS_GRID_COLS)
+            for i in range(maxRows * _NEARBY_PLAYERS_GRID_COLS):
+                row, col = divmod(i, _NEARBY_PLAYERS_GRID_COLS)
+                screenRow = rowStart + row * rowStride
+                screenCol = gridStartCol + col * barStride
+                if i < len(entries):
+                    name, attr = entries[i]
+                    # Truncated (names can run up to 15 characters) before
+                    # centering - str.center() only pads, never shrinks, so
+                    # a long name would otherwise spill past the bar uncut.
+                    text = name[:barWidth].center(barWidth)
+                else:
+                    # Past the end of `entries` - blank, same as an empty inventory slot.
+                    text = " " * barWidth
+                    attr = defaultAttr
+                _writeLine(pad, screenRow, screenCol, text, barWidth, attr)
 
 
 def resolveEnterButtonClick(layout: PanelLayout, mouseRow: int, mouseCol: int) -> bool:
