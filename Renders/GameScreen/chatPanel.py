@@ -24,7 +24,7 @@ SECTION_DIVIDER_CHAR = "-"
 VERTICAL_DIVIDER_CHAR = "|"
 
 CHAT_KEY = ord("/")
-MAX_MESSAGE_LENGTH = 255
+MAX_MESSAGE_LENGTH = 128
 MAX_HISTORY = 200
 
 _KIND_TO_COLOR_NAME = {"self": "CYAN", "other": "WHITE", "world": "YELLOW"}
@@ -156,7 +156,11 @@ def _drawInputBar(pad: curses.window, layout: ChatLayout, ctx: Context) -> None:
     visibleBuffer = buffer[-available:] if len(buffer) > available else buffer
     text = f"{prefix}{visibleBuffer}_"
     padded = text[:layout.panelWidth].ljust(layout.panelWidth)
-    _write(pad, inputRow, 0, padded, curses.color_pair(ColorPairs.FILL_WHITE))
+    # At the hard cap, every further keystroke is silently dropped (see
+    # handleChatInput) - flip the bar red so that's visible, not silent.
+    atCap = len(buffer) >= MAX_MESSAGE_LENGTH
+    fillPair = ColorPairs.FILL_RED if atCap else ColorPairs.FILL_WHITE
+    _write(pad, inputRow, 0, padded, curses.color_pair(fillPair))
 
 
 def drawChatPanel(pad: curses.window, layout: ChatLayout, ctx: Context) -> None:
@@ -183,7 +187,14 @@ def recordIncomingText(ctx: Context, event, selfObjectId: int) -> None:
 
 def _sendChatMessage(outgoingQueue, text: str) -> None:
     packet = PacketHelper.createPacket("PLAYERTEXT")
-    packet.text = text
+    # Hard cap enforced again here, on the packet itself, right before it's
+    # queued - not just trusted from the input buffer's own cap (see
+    # handleChatInput) - so this can never regress into sending an
+    # oversized PLAYERTEXT even if some future change feeds this function a
+    # string from somewhere else.
+    packet.text = text[:MAX_MESSAGE_LENGTH]
+    assert len(packet.text) <= MAX_MESSAGE_LENGTH, \
+        f"PLAYERTEXT.text is {len(packet.text)} chars, over the {MAX_MESSAGE_LENGTH}-char hard cap"
     outgoingQueue.put(packet)
 
 
