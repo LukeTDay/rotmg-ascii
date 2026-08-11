@@ -1,3 +1,7 @@
+# Endpoint list credtis
+# - https://github.com/max-minty/RotMG-API
+# - https://github.com/rotmg-network/appengine-tool
+# - https://github.com/Maxi35/pyrelay
 
 # account/*
 VERIFY = "https://www.realmofthemadgod.com/account/verify"
@@ -16,6 +20,7 @@ CLAIMLOGINREWARD = "https://www.realmofthemadgod.com/account/claimLoginReward"
 CHAR = "https://www.realmofthemadgod.com/char/list"
 CHARFAME = "https://www.realmofthemadgod.com/char/fame"
 CHARDELETE = "https://www.realmofthemadgod.com/char/delete"
+CHARPURCHASECLASSUNLOCK = "https://www.realmofthemadgod.com/char/purchaseClassUnlock"
 
 # serverStatus/*
 SERVERSTATUS = "https://www.realmofthemadgod.com/serverStatus/getServerStatus"
