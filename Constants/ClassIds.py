@@ -53,3 +53,32 @@ def idToClass(classId: int) -> str | None:
 def classToId(className: str) -> int | None:
     return CLASS_TO_ID.get(className)
 
+
+# classId -> [(precursorClassId, requiredBestLevel), ...] - a class is unlocked once
+# every precursor's <Stats>/<ClassStats>/<BestLevel> (char_list.xml, see
+# Utils/XML/parseCharList.py) meets its required level. Wizard has no entry - it's
+# the only unconditional root. User-supplied and confirmed 2026-08-11 against a real
+# account's actual unlock state (drydessa: Rogue/Archer/Wizard/Priest/Warrior/
+# Assassin/Necromancer/Huntress unlocked, all others locked).
+CLASS_UNLOCK_REQUIREMENTS: dict[int, list[tuple[int, int]]] = {
+    PRIEST: [(WIZARD, 5)],
+    ARCHER: [(PRIEST, 5)],
+    ROGUE: [(ARCHER, 5)],
+    WARRIOR: [(ROGUE, 5)],
+
+    KNIGHT: [(WARRIOR, 20)],
+    PALADIN: [(PRIEST, 20), (KNIGHT, 20)],
+    ASSASSIN: [(ROGUE, 20), (WIZARD, 20)],
+    NECROMANCER: [(WIZARD, 20), (PRIEST, 20)],
+    HUNTRESS: [(ROGUE, 20), (ARCHER, 20)],
+    MYSTIC: [(NECROMANCER, 20), (HUNTRESS, 20)],
+    TRICKSTER: [(PALADIN, 20), (ASSASSIN, 20)],
+    SORCERER: [(ASSASSIN, 20), (NECROMANCER, 20)],
+    NINJA: [(ROGUE, 20), (WARRIOR, 20)],
+    SAMURAI: [(KNIGHT, 20), (NINJA, 20)],
+    BARD: [(PALADIN, 20), (HUNTRESS, 20)],
+    SUMMONER: [(SORCERER, 20), (MYSTIC, 20)],
+    KENSEI: [(TRICKSTER, 20), (NINJA, 20)],
+    DRUID: [(SORCERER, 20), (MYSTIC, 20)],
+}
+

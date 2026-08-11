@@ -23,6 +23,7 @@ from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
 from Renders.PauseMenu.pauseMenu import drawPauseMenu
 
 from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds, wavyParams
+from Utils.XML.parseCharList import parseNewCharacterXml
 
 import curses, gc, threading, queue, time
 
@@ -56,6 +57,11 @@ _SAFE_AREAS = {"nexus", "vault", "pet yard", "daily quest room", "grand bazaar"}
 
 def _isSafeArea(ctx: Context) -> bool:
     return ctx.get("CURR_MAP_NAME", "").strip().lower() in _SAFE_AREAS
+
+
+# The tutorial's last map - reaching it means the tutorial is finished, ahead
+# of char/list's <Account>/<TDone> actually appearing on a later fetch.
+_TUTORIAL_END_MAP = "oryx's kitchen"
 
 
 def drawGame(stdscr: curses.window, ctx: Context) -> Screen:
@@ -100,6 +106,16 @@ def _syncPadSize(stdscr: curses.window, pad: curses.window) -> None:
     maxY, maxX = stdscr.getmaxyx()
     if pad.getmaxyx() != (maxY, maxX):
         pad.resize(max(1, maxY), max(1, maxX))
+
+
+def _initialGameId(ctx: Context) -> int:
+    """gameId for a fresh (non-reconnect) HELLO. CharData.tutorialDone (from
+    char/list's <Account>/<TDone> presence - see CLAUDE.local.md) mirrors a
+    real captured account: gameId=tutorial before TDone exists, nexus after."""
+    charData = ctx.get("CHARDATA")
+    if charData is not None and not charData.tutorialDone:
+        return GameIds.tutorial
+    return GameIds.nexus
 
 
 def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context) -> Screen | None:
@@ -156,7 +172,7 @@ def _establishConnection(stdscr: curses.window, pad: curses.window, ctx: Context
     pendingReconnect = ctx.pop("PENDING_RECONNECT_HELLO", None)
 
     hello = PacketHelper.createPacket("HELLO")
-    hello.gameId = pendingReconnect.gameId if pendingReconnect is not None else GameIds.nexus
+    hello.gameId = pendingReconnect.gameId if pendingReconnect is not None else _initialGameId(ctx)
     hello.buildVersion = required(ctx.get("buildVersion"), "buildVersion")
     hello.accessToken = required(ctx.get("accessToken"), "accessToken")
     hello.keyTime = pendingReconnect.keyTime if pendingReconnect is not None else 0
@@ -199,17 +215,46 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                     mapName = event.name
                     ctx["CURR_MAP_NAME"] = mapName
                     debugger.info(f"MAPINFO received: {mapName}")
-                    load = PacketHelper.createPacket("LOAD")
-                    load.charId = required(ctx.get("CURR_CHAR_ID"), "CURR_CHAR_ID")
-                    load.isFromArena = False
-                    outgoingQueue.put(load)
+                    if mapName.strip().lower() == _TUTORIAL_END_MAP:
+                        charData = ctx.get("CHARDATA")
+                        if charData is not None and not charData.tutorialDone:
+                            debugger.info("Reached Oryx's Kitchen - marking tutorial done")
+                            charData.tutorialDone = True
+                    # Popped (not just read) so a later RECONNECT (portal, death,
+                    # etc.) within this same session falls through to LOAD below
+                    # instead of creating a new character every time.
+                    pendingNewChar = ctx.pop("PENDING_NEW_CHAR", None)
+                    if pendingNewChar is not None:
+                        debugger.info(f"Sending CREATE for classType={pendingNewChar.classType} "
+                                      f"isSeasonal={pendingNewChar.isSeasonal}")
+                        create = PacketHelper.createPacket("CREATE")
+                        create.classType = pendingNewChar.classType
+                        create.skinType = 0
+                        create.unknownFlag = False
+                        create.isSeasonal = pendingNewChar.isSeasonal
+                        create.isUpgraded = True
+                        outgoingQueue.put(create)
+                    else:
+                        load = PacketHelper.createPacket("LOAD")
+                        load.charId = required(ctx.get("CURR_CHAR_ID"), "CURR_CHAR_ID")
+                        load.isFromArena = False
+                        outgoingQueue.put(load)
                 elif packetType == "FAILURE":
                     return _handleFailure(stdscr, pad, ctx, event)
                 elif packetType == "RECONNECT":
                     _handleReconnect(ctx, event)
                     return _RECONNECT
+                elif packetType == "NEWCHARACTERINFORMATION":
+                    # Sent right after our CREATE, ahead of CREATESUCCESS - adds
+                    # the just-made character to CHARLIST/CHARDATA immediately so
+                    # it shows up in charSelect without a full re-login.
+                    _applyNewCharacterInformation(ctx, event, debugger)
                 elif packetType == "CREATESUCCESS":
                     debugger.info(f"CREATESUCCESS - handshake complete, objectId={event.objectId}")
+                    # Authoritative charId - covers both the LOAD path (already
+                    # matches CURR_CHAR_ID) and the CREATE path (CURR_CHAR_ID was
+                    # never set, so any later RECONNECT's LOAD needs it from here).
+                    ctx["CURR_CHAR_ID"] = event.charId
                     showAllyShoot = PacketHelper.createPacket("SHOWALLYSHOOT")
                     showAllyShoot.toggle = 0
                     outgoingQueue.put(showAllyShoot)
@@ -262,6 +307,33 @@ _LOCK_LIST_ID = 0  # AccountListPacket.accountListId - 0 is the lock list, 1 is 
 _LOCK_ACTION_SNAPSHOT = -1
 _LOCK_ACTION_REMOVE = 0
 _LOCK_ACTION_ADD = 1
+
+
+def _applyNewCharacterInformation(ctx: Context, event, debugger) -> None:
+    parsedChars = parseNewCharacterXml(event.charXML, debugger)
+    if not parsedChars:
+        debugger.warning("NEWCHARACTERINFORMATION: charXML failed to parse, CHARLIST/CHARDATA left unchanged")
+        return
+
+    # May include characters CHARLIST already has (an account with existing
+    # characters gets all of them back, not just the new one) - only add ids
+    # not already tracked, so an existing character never gets duplicated.
+    charList = ctx.setdefault("CHARLIST", [])
+    existingIds = {c.charID for c in charList}
+    charData = ctx.get("CHARDATA")
+
+    addedIds = []
+    for charListEntry in parsedChars:
+        if charListEntry.charID in existingIds:
+            continue
+        charList.append(charListEntry)
+        existingIds.add(charListEntry.charID)
+        addedIds.append(charListEntry.charID)
+        if charData is not None and charListEntry.charID not in charData.charIds:
+            charData.charIds.append(charListEntry.charID)
+
+    debugger.info(f"NEWCHARACTERINFORMATION: added charIDs={addedIds} to CHARLIST/CHARDATA "
+                  f"({len(parsedChars) - len(addedIds)} already tracked)")
 
 
 def _applyAccountList(ctx: Context, event) -> None:

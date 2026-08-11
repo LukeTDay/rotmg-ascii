@@ -114,8 +114,7 @@ def _activate(stdscr: curses.window, pad: curses.window, ctx: Context, label: st
         drawKeybindConfig(stdscr, ctx)
         return _STAY
     if label == "Create Character":
-        _showMessage(stdscr, pad, ctx, "Create Character", ["Not yet implemented."])
-        return _STAY
+        return Screen.charCreate
     if label == "Delete Character":
         _showMessage(stdscr, pad, ctx, "Delete Character", ["Not yet implemented."])
         return _STAY

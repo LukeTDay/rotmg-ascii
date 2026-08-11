@@ -2,7 +2,7 @@ from Constants.Screen import Screen
 from Constants.ApiPoints import *
 
 from Utils.XML.parseServersXML import parseServersXML
-from Utils.XML.parseCharList import parseCharList
+from Utils.XML.parseCharList import parseCharData, parseCharList
 from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
@@ -118,6 +118,10 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     time.sleep(2)
 
     if moveOn:
+        charData = ctx.get("CHARDATA")
+        if charData is not None and len(charData.charIds) == 0:
+            debugger.info("Login complete - account has no characters, proceeding to charCreate")
+            return Screen.charCreate
         debugger.info("Login complete - proceeding to charSelect")
         return Screen.charSelect
     else:
@@ -143,6 +147,7 @@ def parseHandler(ctx : Context, result) -> None:
             ctx["GUILDMEMBERS"] = parseGuildMembers(result[2], debugger)
         case "CHARLIST":
             ctx["CHARLIST"] = parseCharList(result[2], debugger)
+            ctx["CHARDATA"] = parseCharData(result[2], debugger)
         case "SERVERS":
             ctx["SERVERS"] = parseServersXML(result[2], debugger)
 

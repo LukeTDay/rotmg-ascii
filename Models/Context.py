@@ -1,5 +1,6 @@
 from typing import Deque, TypedDict, List, Dict, FrozenSet, NamedTuple, Set, Tuple, TypeVar
 
+from Models.CharData import CharData
 from Models.CharListData import CharListData
 from Models.TileManager import PerTileIndex, RenderCell
 
@@ -23,6 +24,13 @@ class PendingReconnectHello(NamedTuple):
     gameId: int
     keyTime: int
     key: List[int]
+
+
+class PendingNewChar(NamedTuple):
+    """Set by charCreate.py once a class + seasonal/standard choice is confirmed -
+    consumed wherever the actual CREATE packet ends up getting sent."""
+    classType: int
+    isSeasonal: bool
 
 
 class SelectedSlot(NamedTuple):
@@ -49,11 +57,17 @@ class Context(TypedDict, total=False):
     clientToken: str
     buildVersion: str
     CHARLIST: List[CharListData]
+    # nextCharId/maxNumChars/unlockedClasses derived from the same char/list
+    # response CHARLIST comes from - see Utils/XML/parseCharList.parseCharData.
+    CHARDATA: CharData
     FRIENDSLIST: Set[str]
     GUILDMEMBERS: Set[str]
     LOCKEDACCOUNTS: Set[str]
     SERVERS: Dict[str, str]
     CURR_CHAR_ID: int
+    # Set instead of CURR_CHAR_ID when heading into serverSelect/gameScreen to
+    # create a new character rather than load an existing one.
+    PENDING_NEW_CHAR: PendingNewChar
     CURR_SERVER: str
     # The host picked in serverSelect.py, kept unchanged for the whole
     # session even as CURR_SERVER drifts to whatever realm/dungeon-specific

@@ -31,6 +31,11 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
 
     alias = required(ctx.get("account"), "account")["alias"]
 
+    charData = ctx.get("CHARDATA")
+    canCreate = charData is not None and len(charData.charIds) < charData.maxNumChars
+    # "Create Character" only shown when a slot is free - "Back to Account Select" always last.
+    extraSlots = (["create"] if canCreate else []) + ["back"]
+
     # Fixed regardless of scroll position/selection, so it only needs computing once.
     headerHeight = figletLineCount("Select a character") + 1 + figletLineCount(alias) + 1
 
@@ -50,7 +55,7 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
         elif selected >= scrollOffset + visibleRows:
             scrollOffset = selected - visibleRows + 1
 
-        entryCount = len(loadedChars) + 1  # + "Back to Account Select"
+        entryCount = len(loadedChars) + len(extraSlots)
         shownCount = min(visibleRows, entryCount - scrollOffset)
         totalHeight = headerHeight + shownCount * ROWS_PER_SLOT
         y = max(0, (height - totalHeight) // 2)
@@ -64,6 +69,8 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
             attr = curses.A_REVERSE if actualIndex == selected else curses.A_NORMAL
             if actualIndex < len(loadedChars):
                 y = printCharSlot(stdscr, pad, y, loadedChars[actualIndex], attr)
+            elif extraSlots[actualIndex - len(loadedChars)] == "create":
+                y = printCreateSlot(stdscr, pad, y, attr)
             else:
                 y = printBackSlot(stdscr, pad, y, attr)
 
@@ -80,10 +87,13 @@ def drawCharSelect(stdscr : curses.window, ctx : Context) -> Screen:
         selectionChanged = selected != prevSelected
 
         if key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
-            if selected == len(loadedChars):
+            if selected < len(loadedChars):
+                ctx["CURR_CHAR_ID"] = loadedChars[selected].charID
+                return Screen.serverSelect
+            elif extraSlots[selected - len(loadedChars)] == "create":
+                return Screen.charCreate
+            else:
                 return Screen.accountSelect
-            ctx["CURR_CHAR_ID"] = loadedChars[selected].charID
-            return Screen.serverSelect
 
 def _printSplitRow(stdscr : curses.window,
                    pad : curses.window,
@@ -184,4 +194,12 @@ def printBackSlot(stdscr : curses.window,
                   attr : int) -> int:
     # Same total height as printCharSlot so scroll math treats every entry uniformly.
     y = drawCenteredText(stdscr, pad, y, "Back to Account Select", attr)
+    return y + 3
+
+def printCreateSlot(stdscr : curses.window,
+                    pad : curses.window,
+                    y : int,
+                    attr : int) -> int:
+    # Same total height as printCharSlot so scroll math treats every entry uniformly.
+    y = drawCenteredText(stdscr, pad, y, "Create Character", attr)
     return y + 3

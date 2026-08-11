@@ -11,11 +11,17 @@ from Utils.json.objectNameLoader import objectRenderInfo
 
 # Confirmed: enemy hitbox is a fixed 0.5-tile radius regardless of visual
 # <Size>/SizeStat - only an explicit <CustomHitbox scale="N"> (~55 mostly-
-# boss enemies) overrides it. _BULLET_RADIUS_TILES is a small fixed
-# allowance for the shot's own width, not derived from the projectile's own
-# <Size> - keeps this one estimate instead of two.
+# boss enemies) overrides it.
 _BASE_ENEMY_RADIUS_TILES = 0.5
-_BULLET_RADIUS_TILES = 0.1
+
+# EXPERIMENTAL (was +0.1, a generous allowance for the shot's own width):
+# Evil Chicken God got zero DAMAGE back across 708 sends all within the old
+# 0.6 cutoff (debug.txt, 2026-08-11) - trying a tighter cutoff than the base
+# radius itself to see if it correlates with real confirmations instead.
+# Still scales with <CustomHitbox scale> like the old allowance did (applied
+# after _enemyRadiusTiles' multiply, not before) - only the default-enemy
+# case changes size (0.5 -> 0.45).
+_SEND_THRESHOLD_MARGIN_TILES = -0.05
 
 # UNVERIFIED best-effort estimate - no confirmed source for RotMG's real
 # damage-vs-defense formula exists in this repo or in either reference bot
@@ -59,7 +65,12 @@ class HitTracker:
     numbers instead of another guess.
     """
 
-    _CONFIRM_TIMEOUT_MS = 500.0
+    # Was 500 - real round-trip observed in debug.txt was 18s (one send's
+    # DAMAGE arrived long after its own pending entry had already timed out
+    # and the bulletId had recycled onto unrelated sends), so 500ms never
+    # gave a real confirmation a chance to land. 30s comfortably covers that
+    # with margin while still expiring genuinely-never-confirmed sends.
+    _CONFIRM_TIMEOUT_MS = 30000.0
 
     def __init__(self):
         self._pending: Dict[Tuple[int, int], _PendingHit] = {}
@@ -82,7 +93,14 @@ class HitTracker:
 
         pending = self._pending.pop((bulletId, targetId), None)
         if pending is None:
-            return  # DAMAGE for a hit we never sent (or already timed out) - not ours to track
+            # Either genuinely not ours, or ours but already popped by
+            # pruneTimeouts/overwritten by a later send reusing this same
+            # (bulletId, targetId) - bulletId is a small counter that can
+            # recycle well within real DAMAGE round-trip time (confirmed:
+            # one case took 18s). Logged distinctly from "DAMAGE received"
+            # so matched-vs-unmatched is directly greppable.
+            debugger.debug(f"DAMAGE unmatched (no/expired pending ENEMYHIT): bulletId={bulletId} targetId={targetId}")
+            return
         debugger.debug(
             f"HIT CONFIRMED: {pending.enemyName} (type={pending.enemyObjectType}) bulletId={bulletId} "
             f"damage={damageAmount} distanceAtSend={pending.distance:.3f} estimatedRadius={pending.radius:.3f}"
@@ -151,7 +169,7 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
             enemyPos = obj.renderPos(now)
             dist = math.hypot(pos.x - enemyPos.x, pos.y - enemyPos.y)
             radius = _enemyRadiusTiles(obj)
-            if dist > radius + _BULLET_RADIUS_TILES:
+            if dist > radius + _SEND_THRESHOLD_MARGIN_TILES:
                 continue
 
             liveHp = obj.stats.get(StatTypes.HPSTAT)
