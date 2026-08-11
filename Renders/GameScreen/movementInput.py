@@ -98,6 +98,10 @@ if IS_WINDOWS:
                 dy += vy
         if dx == 0.0 and dy == 0.0:
             return None
+        # Self-refresh: a still-held key keeps trust armed even if curses never
+        # delivers another repeat event for it (e.g. auto-repeat got handed to
+        # a second key pressed mid-hold, like the autofire toggle).
+        _noteKeyEventSeen()
         # Not normalized here - handleMovementInput normalizes after collision, see its comment.
         return dx, dy
 
