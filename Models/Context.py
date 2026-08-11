@@ -55,6 +55,14 @@ class Context(TypedDict, total=False):
     SERVERS: Dict[str, str]
     CURR_CHAR_ID: int
     CURR_SERVER: str
+    # The host picked in serverSelect.py, kept unchanged for the whole
+    # session even as CURR_SERVER drifts to whatever realm/dungeon-specific
+    # host each RECONNECT bounces to. Only a fresh connect to this original
+    # host reliably honors HELLO's gameId=GameIds.nexus - a realm/dungeon
+    # server just re-serves its own instance instead (confirmed live: see
+    # gameScreen._directNexus). Used to make NEXUS_MODE_DIRECT_CONNECT
+    # actually land in the Nexus instead of wherever CURR_SERVER points now.
+    HOME_SERVER: str
     TICKER : Ticker
     LISTENER : Listener
     SENDER : Sender

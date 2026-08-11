@@ -84,3 +84,32 @@ def isAutoFireToggle(keys: List[int], keybinds: Dict[str, str]) -> bool:
 
 def isChatOpenKey(keys: List[int], keybinds: Dict[str, str]) -> bool:
     return _matchesLetter(keys, keybinds.get("openChat", "/"))
+
+
+def isNexusKey(keys: List[int], keybinds: Dict[str, str]) -> bool:
+    return _matchesLetter(keys, keybinds.get("nexus", "r"))
+
+
+# How the nexus key behaves - see gameScreen._directNexus/ESCAPE handling.
+# ESCAPE asks the server to do it and waits for its RECONNECT reply;
+# DIRECT_CONNECT tears the connection down client-side immediately and
+# reconnects fresh, same as the very first connect after server select -
+# faster in a pinch, at the cost of trusting the client's own state instead
+# of the server's.
+NEXUS_MODE_FIELD = "nexusMode"
+NEXUS_MODE_ESCAPE = "escape"
+NEXUS_MODE_DIRECT_CONNECT = "directConnect"
+_NEXUS_MODES = (NEXUS_MODE_ESCAPE, NEXUS_MODE_DIRECT_CONNECT)
+
+
+def getNexusMode(keybinds: Dict[str, str]) -> str:
+    mode = keybinds.get(NEXUS_MODE_FIELD, NEXUS_MODE_DIRECT_CONNECT)
+    return mode if mode in _NEXUS_MODES else NEXUS_MODE_DIRECT_CONNECT
+
+
+def toggleNexusMode(keybinds: Dict[str, str]) -> str:
+    """Flips nexusMode to the other option and returns the new value - used
+    by the keybind config screen's toggle row."""
+    nextMode = NEXUS_MODE_ESCAPE if getNexusMode(keybinds) == NEXUS_MODE_DIRECT_CONNECT else NEXUS_MODE_DIRECT_CONNECT
+    keybinds[NEXUS_MODE_FIELD] = nextMode
+    return nextMode

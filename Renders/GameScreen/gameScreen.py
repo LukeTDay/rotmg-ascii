@@ -15,6 +15,7 @@ from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, dr
 from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen import bottomPanel, chatPanel, inventoryPanel, itemInfoPeek, uiPanel
 from Renders.GameScreen.hitDetection import HitTracker, checkProjectileHits
+from Renders.GameScreen.inputRouter import NEXUS_MODE_DIRECT_CONNECT, getNexusMode, isNexusKey
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
 from Renders.GameScreen.panelInput import handlePanelInput
@@ -411,6 +412,19 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
 
         keybinds = ctx.get("KEYBINDS", {})
 
+        if not isTyping and isNexusKey(keys, keybinds):
+            # Checked first, ahead of the pause menu, so a panic-nexus in
+            # danger is never delayed by anything else this frame.
+            if getNexusMode(keybinds) == NEXUS_MODE_DIRECT_CONNECT:
+                debugger.info("Nexus key pressed - direct-connect mode, tearing down client-side")
+                return _directNexus(ctx)
+            # ESCAPE is fire-and-forget - the server answers with a RECONNECT
+            # to the Nexus, already handled generically by _handleReconnect/
+            # _teardownConnection below (same path a portal/death reconnect
+            # takes).
+            outgoingQueue.put(PacketHelper.createPacket("ESCAPE"))
+            debugger.info("Nexus key pressed - escape mode, sent ESCAPE")
+
         if not isTyping and 27 in keys:
             if _isSafeArea(ctx):
                 result = drawPauseMenu(stdscr, ctx)
@@ -516,6 +530,40 @@ def _handleReconnect(ctx: Context, packet) -> None:
     ctx["SELECTED_SLOT"] = None
     ctx["BOTTOM_PANEL_CYCLE_INDEX"] = 0
     ctx["BOTTOM_PANEL_CANDIDATE_IDS"] = frozenset()
+
+
+def _directNexus(ctx: Context):
+    """NEXUS_MODE_DIRECT_CONNECT: tears the connection down client-side
+    immediately instead of sending ESCAPE and waiting for the server's
+    RECONNECT reply - faster in a pinch, trusting the client's own state
+    instead. No PENDING_RECONNECT_HELLO is set (any stale one is dropped),
+    so the next _establishConnection call sends a fresh HELLO with
+    gameId=GameIds.nexus/keyTime=0/key=[], exactly like the very first
+    connect after server select.
+
+    Confirmed live: reconnecting to whatever CURR_SERVER currently holds
+    does NOT reliably work - once the player has gone through any RECONNECT
+    (a portal, dying, etc), CURR_SERVER points at that realm/dungeon
+    instance's own host, and that host just re-serves its own realm instead
+    of honoring gameId=nexus. Only the original server picked in
+    serverSelect.py (Context.HOME_SERVER) has been confirmed to actually
+    hand back a Nexus - so CURR_SERVER is reset to it here, same host the
+    very first connect after server select used.
+
+    Returns the module-level _RECONNECT sentinel for the caller to return
+    straight through."""
+    debugger = required(ctx.get("DEBUGGER"), "DEBUGGER")
+    debugger.info("Direct-connect nexus: tearing down connection client-side")
+    _teardownConnection(ctx)
+    ctx.pop("PENDING_RECONNECT_HELLO", None)
+    ctx["CURR_SERVER"] = required(ctx.get("HOME_SERVER"), "HOME_SERVER")
+
+    ctx["PEEKED_OBJECT_TYPE"] = None
+    ctx["SELECTED_SLOT"] = None
+    ctx["BOTTOM_PANEL_CYCLE_INDEX"] = 0
+    ctx["BOTTOM_PANEL_CANDIDATE_IDS"] = frozenset()
+
+    return _RECONNECT
 
 
 def _handleFailure(stdscr: curses.window, pad: curses.window, ctx: Context, packet) -> Screen:

@@ -6,6 +6,7 @@ from Models.Context import Context, required
 from Renders.EnterAccountInfo.enterAccountInfo import (
     centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, figletLineCount,
 )
+from Renders.GameScreen.inputRouter import NEXUS_MODE_FIELD, toggleNexusMode
 from Renders.backgroundTexture import drawBackgroundTexture
 from Utils.json.keybindLoader import saveKeybinds
 
@@ -149,6 +150,14 @@ def drawKeybindConfig(stdscr: curses.window, ctx: Context) -> None:
         selectionChanged = selected != prevSelected
 
         if key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
-            editing = True
-            pendingValue = ""
-            conflictField = None
+            field = fields[selected]
+            if field == NEXUS_MODE_FIELD:
+                # A 2-value enum, not a single keystroke - Enter just flips
+                # it and saves immediately, no edit sub-state needed.
+                newMode = toggleNexusMode(keybinds)
+                saveKeybinds(keybinds)
+                debugger.info(f"Nexus mode set to {newMode!r}")
+            else:
+                editing = True
+                pendingValue = ""
+                conflictField = None

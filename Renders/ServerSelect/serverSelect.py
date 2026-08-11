@@ -111,6 +111,11 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
             else:
                 name = serverNames[entryIndex]
                 ctx["CURR_SERVER"] = servers[name]
+                # Kept separate from CURR_SERVER, which later RECONNECTs
+                # (portals, dying, etc) overwrite with realm/dungeon-specific
+                # hosts - see Context.HOME_SERVER's docstring for why the
+                # direct-connect nexus needs this original host specifically.
+                ctx["HOME_SERVER"] = servers[name]
                 saveLastServer(name)
                 return Screen.gameScreen
 
