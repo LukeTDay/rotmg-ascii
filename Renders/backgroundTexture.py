@@ -31,7 +31,8 @@ DEFAULT_REGEN_INTERVAL_SECONDS = 2.0
 def drawBackgroundTexture(stdscr: curses.window, pad: curses.window, ctx: Context,
                            chars: Tuple[str, ...] = DEFAULT_TEXTURE_CHARS,
                            regenIntervalSeconds: float = DEFAULT_REGEN_INTERVAL_SECONDS,
-                           dim: bool = True) -> None:
+                           dim: bool = True,
+                           forceRegen: bool = False) -> None:
     """Scatters a random low-density field of texture glyphs, each an
     independently random char/color pair, across the pad - call once per
     frame, before a screen draws its own content on top (the content just
@@ -42,6 +43,11 @@ def drawBackgroundTexture(stdscr: curses.window, pad: curses.window, ctx: Contex
     (gameScreen's ~120Hz loop vs. a menu screen blocking on getch() per
     keystroke), so a call-count threshold would regenerate at wildly
     different real-world rates depending on which screen calls this.
+
+    `forceRegen` bypasses that timer for one call - a scrolling menu passes
+    True on the redraw right after its selection changes, so the texture
+    visibly shifts with each navigation step instead of only every couple
+    seconds regardless of input.
     """
     maxY, maxX = stdscr.getmaxyx()
     rng = ctx.setdefault("RNG", random.Random())
@@ -50,7 +56,7 @@ def drawBackgroundTexture(stdscr: curses.window, pad: curses.window, ctx: Contex
     cache = ctx.get("BACKGROUND_TEXTURE_CACHE")
     cachedDims = ctx.get("BACKGROUND_TEXTURE_DIMS")
     lastRegen = ctx.get("BACKGROUND_TEXTURE_LAST_REGEN", 0.0)
-    needsRegen = cache is None or cachedDims != (maxY, maxX) or now - lastRegen >= regenIntervalSeconds
+    needsRegen = forceRegen or cache is None or cachedDims != (maxY, maxX) or now - lastRegen >= regenIntervalSeconds
 
     if needsRegen:
         count = round(maxY * maxX * rng.uniform(_MIN_DENSITY, _MAX_DENSITY))

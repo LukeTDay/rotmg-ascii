@@ -45,11 +45,12 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
     rowIdx = 0
     colIdx = 0
     scrollOffset = 0
+    selectionChanged = False
 
     while True:
         pad.move(0, 0)
         pad.clrtobot()
-        drawBackgroundTexture(stdscr, pad, ctx)
+        drawBackgroundTexture(stdscr, pad, ctx, forceRegen=selectionChanged)
 
         height, width = stdscr.getmaxyx()
         visibleRows = max(1, (height - headerHeight) // ROWS_PER_SLOT)
@@ -76,6 +77,7 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
         determineRefreshWindow(stdscr, pad, y)
         key = pad.getch()
 
+        prevSelection = (rowIdx, colIdx)
         if key == curses.KEY_UP or key == ord('w'):
             rowIdx = max(0, rowIdx - 1)
             colIdx = min(colIdx, len(rows[rowIdx]) - 1)
@@ -86,7 +88,9 @@ def drawServerSelect(stdscr : curses.window, ctx : Context) -> Screen:
             colIdx = max(0, colIdx - 1)
         elif key == curses.KEY_RIGHT or key == ord('d'):
             colIdx = min(len(rows[rowIdx]) - 1, colIdx + 1)
-        elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
+        selectionChanged = (rowIdx, colIdx) != prevSelection
+
+        if key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
             entryIndex = rows[rowIdx][colIdx]
             if entryIndex == len(serverNames):
                 return Screen.accountSelect

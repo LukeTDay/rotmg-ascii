@@ -44,11 +44,12 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
 
     selected = 0
     scrollOffset = 0
+    selectionChanged = False
 
     while True:
         pad.move(0,0)
         pad.clrtobot()
-        drawBackgroundTexture(stdscr, pad, ctx)
+        drawBackgroundTexture(stdscr, pad, ctx, forceRegen=selectionChanged)
 
         height,width = stdscr.getmaxyx()
         entryCount = len(storedAccounts) + 1  # + "Enter New Account Information"
@@ -79,13 +80,16 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
         determineRefreshWindow(stdscr, pad, y)
         key = pad.getch()
 
+        prevSelected = selected
         if key == curses.KEY_UP or key == ord('w'):
             selected = selected - 1
             selected = max(0, selected)
         elif key == curses.KEY_DOWN or key == ord('s'):
             selected = selected + 1
             selected = min(entryCount - 1, selected)
-        elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
+        selectionChanged = selected != prevSelected
+
+        if key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
             if selected == len(storedAccounts):
                 return Screen.enterAccountInfo
             ctx["account"] = storedAccounts[selected]
