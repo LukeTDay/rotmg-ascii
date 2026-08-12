@@ -6,7 +6,7 @@ from Utils.XML.parseCharList import parseCharData, parseCharList
 from Utils.XML.parseFriendsList import parseFriendsList
 from Utils.XML.parseGuildmembers import parseGuildMembers
 
-from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, verifyWorker
+from Renders.EnterAccountInfo.enterAccountInfo import centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, figletLineCount, verifyWorker
 from Renders.backgroundTexture import drawBackgroundTexture
 from Models.Context import Context, required
 
@@ -35,12 +35,13 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     tokenThread.start()
 
     verifyingTextX = centeredX(stdscr, "ROTMG account.....")
+    verifyingStartY = max(0, (stdscr.getmaxyx()[0] - figletLineCount("Verifying") - 1) // 2)
     buf : List[str] = []
     while tokenThread.is_alive():
         pad.move(0,0)
         pad.clrtobot()
         drawBackgroundTexture(stdscr, pad, ctx)
-        yIndex = drawCenteredBanner(stdscr, pad, 0, "Verifying")
+        yIndex = drawCenteredBanner(stdscr, pad, verifyingStartY, "Verifying")
         yIndex = drawTextAt(stdscr, pad, yIndex + 1, verifyingTextX, f"ROTMG account{''.join(buf)}")
         determineRefreshWindow(stdscr,pad,yIndex)
         time.sleep(0.25)
@@ -77,7 +78,8 @@ def drawLogin(stdscr : curses.window, ctx : Context) -> Screen:
     pad.move(0,0)
     pad.clrtobot()
     drawBackgroundTexture(stdscr, pad, ctx)
-    yIndex = drawCenteredBanner(stdscr, pad, 0, "Verified")
+    verifiedStartY = max(0, (stdscr.getmaxyx()[0] - figletLineCount("Verified")) // 2)
+    yIndex = drawCenteredBanner(stdscr, pad, verifiedStartY, "Verified")
     determineRefreshWindow(stdscr,pad,yIndex)
 
     ctx["accessToken"] = success[1][0]
