@@ -1,11 +1,10 @@
 import curses
-import math
 from typing import Optional, Tuple
 
 from Constants import ColorPairs
 from Constants.ItemGlyphs import resolveEquipmentChar, resolvePotionChar
 from Models.PlayerData import PlayerData
-from Renders.GameScreen.uiPanel import PanelLayout, drawGridDividers, evenlySpacedRows
+from Renders.GameScreen.uiPanel import PanelLayout, drawGridDividers
 from Utils.json.objectNameLoader import objectRenderInfo
 
 # Same bar look as the HUD this replaced (mapRenderer.py's old
@@ -28,12 +27,13 @@ BASE_INV_SLOTS = 12  # player.inv[0:12] - INVENTORY0..11STAT, always rendered
 # 16 StatTypes.py actually defines, not an arbitrary lower guess.
 MAX_BACKPACK_SLOTS = 16
 GRID_COLS = 4
+TOTAL_SLOTS = BASE_INV_SLOTS + MAX_BACKPACK_SLOTS  # 28 - the grid always shows every possible slot, not just currently-unlocked ones
+GRID_ROWS = TOTAL_SLOTS // GRID_COLS  # 7 - fixed, so the grid always fills the middle section rather than sizing to whatever's currently unlocked
 MIN_CELL_WIDTH = 1
-MAX_CELL_WIDTH = 16  # comfortably longer than any real item name - a cap purely against absurd cell widths on a huge terminal
 CELL_GAP = 1  # column between cells - doubles as the divider column, see drawInventoryGrid
 # First row after the bars, with 1 blank row of spacing below the last one -
-# the grid's own top bound; evenlySpacedRows spreads its rows from here down
-# to the middle section's bottom edge.
+# the grid's own top bound; _gridRowStartAndStride spreads its rows from here
+# down to the middle section's bottom edge.
 _GRID_TOP_OFFSET = _BAR_ROW_OFFSETS[-1] + 2
 
 # ObjectRenderInfo.bagColorTier's values are already curses color-name
@@ -83,14 +83,15 @@ def _contentStartRow(layout: PanelLayout) -> int:
 
 
 def _cellWidthAndStride(panelWidth: int) -> Tuple[int, int]:
-    """Cell width grows to show as much of an item's name as the panel has
-    room for (up to MAX_CELL_WIDTH, well past any real item name's length),
-    instead of a fixed 2 characters. stride = cellWidth + CELL_GAP; the gap
+    """Cell width always fills a quarter of the panel (GRID_COLS is fixed at
+    4, so the 3 gap/divider columns naturally land at exactly panelWidth's
+    1/4, 1/2, and 3/4 marks) - grows unbounded with the panel, no longer
+    capped, so a wider terminal actually produces a wider grid instead of
+    leaving the extra width blank. stride = cellWidth + CELL_GAP; the gap
     column doubles as a vertical divider (see drawInventoryGrid). Falls back
     to the tightest possible 1-char/no-gap layout on the rare terminal too
     narrow to fit GRID_COLS cells any other way."""
-    cellWidth = (panelWidth - (GRID_COLS - 1) * CELL_GAP) // GRID_COLS
-    cellWidth = max(MIN_CELL_WIDTH, min(MAX_CELL_WIDTH, cellWidth))
+    cellWidth = max(MIN_CELL_WIDTH, (panelWidth - (GRID_COLS - 1) * CELL_GAP) // GRID_COLS)
     stride = cellWidth + CELL_GAP
     neededForCurrent = GRID_COLS * stride - CELL_GAP  # no trailing gap after the last column
     if panelWidth >= neededForCurrent:
@@ -98,19 +99,18 @@ def _cellWidthAndStride(panelWidth: int) -> Tuple[int, int]:
     return 1, 1
 
 
-def _rowCountForTotalSlots(totalSlots: int) -> int:
-    return math.ceil(totalSlots / GRID_COLS)
-
-
-def _gridRowStartAndStride(layout: PanelLayout, rowCount: int) -> Tuple[int, int]:
-    """Spreads the grid's rows evenly between just-below-the-bars and the
-    middle section's own bottom edge, so the grid sits near the end of its
-    section with even spacing between rows rather than packed tightly right
-    under the bars - shares the math with bottomPanel's bag grid via
-    uiPanel.evenlySpacedRows so both grids get the same treatment."""
+def _gridRowStartAndStride(layout: PanelLayout) -> Tuple[int, int]:
+    """Spreads all GRID_ROWS rows evenly across the full space between
+    just-below-the-bars and the middle section's own bottom edge - unlike
+    uiPanel.evenlySpacedRows (shared by bottomPanel's low-row-count grids,
+    where an uncapped stride would look like one giant broken gap), GRID_ROWS
+    is a fixed 7 here, large enough that spreading it across the whole
+    section reads as an actual grid rather than sparse rows."""
     topBound = _contentStartRow(layout) + _GRID_TOP_OFFSET
     bottomBound = layout.middleSection.startRow + layout.middleSection.height - 1
-    return evenlySpacedRows(topBound, bottomBound, rowCount)
+    span = max(0, bottomBound - topBound)
+    stride = max(1, span // (GRID_ROWS - 1))
+    return topBound, stride
 
 
 def drawBars(pad: curses.window, layout: PanelLayout, player: PlayerData) -> None:
@@ -183,33 +183,30 @@ def _cellContent(objectType: int, cellWidth: int) -> Tuple[str, int]:
 
 
 def drawInventoryGrid(pad: curses.window, layout: PanelLayout, player: PlayerData) -> None:
-    """Draws the inventory grid in the same middle section as the bars,
-    pushed down toward the section's own bottom edge with even spacing
-    between rows (see _gridRowStartAndStride) rather than packed tightly
-    right under the bars.
+    """Draws the full 28-box (GRID_ROWS x GRID_COLS) inventory grid, always -
+    spanning the whole middle section below the bars regardless of how many
+    backpack slots are actually unlocked (see _gridRowStartAndStride/
+    _cellWidthAndStride, both uncapped so the grid genuinely scales with a
+    bigger panel instead of stopping once content fits).
 
-    The base 12 slots (player.inv[0:12], i.e. INVENTORY0..11STAT - always 3
-    rows x 4 cols) always render. Additional backpack rows (from
-    player.inv[12:20], BACKPACK0..7STAT) render only for however many of the
-    8 backpack slots are actually unlocked (player.backpackSlots) -
-    recomputed fresh every frame (not cached) since that count can change
-    mid-session as a character unlocks more slots.
+    player.inv is always allocated at the full 28 slots (see
+    Models/PlayerData.py), with not-yet-unlocked backpack slots simply
+    holding -1 - so every box can always be drawn directly from player.inv,
+    with locked slots rendering as blank (see _cellContent) rather than
+    needing to be skipped.
 
     Each occupied cell shows as much of the item's name as the panel's
     width allows (see _cellWidthAndStride), colored by its bagColorTier
     bucket, with divider characters between cells/rows so an empty slot
     reads as empty rather than blending into the surrounding gap.
     """
-    backpackSlots = max(0, min(MAX_BACKPACK_SLOTS, player.backpackSlots))
-    totalSlots = BASE_INV_SLOTS + backpackSlots
-    rowCount = _rowCountForTotalSlots(totalSlots)
-    rowStart, rowStride = _gridRowStartAndStride(layout, rowCount)
+    rowStart, rowStride = _gridRowStartAndStride(layout)
     cellWidth, colStride = _cellWidthAndStride(layout.panelWidth)
     gridStartCol = layout.panelStartCol
 
-    drawGridDividers(pad, gridStartCol, rowStart, rowStride, colStride, CELL_GAP, rowCount, GRID_COLS)
+    drawGridDividers(pad, gridStartCol, rowStart, rowStride, colStride, CELL_GAP, GRID_ROWS, GRID_COLS)
 
-    for i in range(totalSlots):
+    for i in range(TOTAL_SLOTS):
         row, col = divmod(i, GRID_COLS)
         screenRow = rowStart + row * rowStride
         screenCol = gridStartCol + col * colStride
@@ -223,15 +220,16 @@ def drawInventoryGrid(pad: curses.window, layout: PanelLayout, player: PlayerDat
 def resolveInventoryClick(layout: PanelLayout, mouseRow: int, mouseCol: int,
                            backpackSlots: int = 0) -> Optional[int]:
     """The panel-space equivalent of mapRenderer.screenToWorld: converts a
-    mouse event's screen row/col into an inventory slot index (0-19),
-    returning None if the click falls outside the currently-drawn
-    (dynamically-sized, see drawInventoryGrid) grid - including a click that
-    lands exactly on a divider rather than a cell.
+    mouse event's screen row/col into an inventory slot index (0-27),
+    returning None if the click falls outside the grid entirely (including a
+    click that lands exactly on a divider rather than a cell) or lands on a
+    box beyond backpackSlots - the grid itself is always fully drawn (see
+    drawInventoryGrid), but a not-yet-unlocked backpack slot stays
+    non-interactive even though its blank box is visible.
     """
     clampedBackpackSlots = max(0, min(MAX_BACKPACK_SLOTS, backpackSlots))
     totalSlots = BASE_INV_SLOTS + clampedBackpackSlots
-    rowCount = _rowCountForTotalSlots(totalSlots)
-    rowStart, rowStride = _gridRowStartAndStride(layout, rowCount)
+    rowStart, rowStride = _gridRowStartAndStride(layout)
     cellWidth, colStride = _cellWidthAndStride(layout.panelWidth)
 
     relCol = mouseCol - layout.panelStartCol
@@ -242,7 +240,7 @@ def resolveInventoryClick(layout: PanelLayout, mouseRow: int, mouseCol: int,
     if rowOffset < 0:
         return None
     row, rowRemainder = divmod(rowOffset, rowStride)
-    if row >= rowCount or rowRemainder != 0:
+    if row >= GRID_ROWS or rowRemainder != 0:
         return None  # between two grid rows (a divider row), not on one
 
     col, colOffsetWithinCell = divmod(relCol, colStride)
