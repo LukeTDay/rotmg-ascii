@@ -116,8 +116,7 @@ def _activate(stdscr: curses.window, pad: curses.window, ctx: Context, label: st
     if label == "Create Character":
         return Screen.charCreate
     if label == "Delete Character":
-        _showMessage(stdscr, pad, ctx, "Delete Character", ["Not yet implemented."])
-        return _STAY
+        return Screen.charDelete
     if label == "About / Version":
         _showAbout(stdscr, pad, ctx)
         return _STAY

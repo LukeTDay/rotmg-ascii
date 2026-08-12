@@ -7,6 +7,7 @@ class Screen(Enum):
     login = auto()
     charSelect = auto()
     charCreate = auto()
+    charDelete = auto()
     serverSelect = auto()
     gameScreen = auto()
     exit = auto()

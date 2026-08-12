@@ -8,6 +8,7 @@ from Renders.AccountSelect.accountSelect import drawAccountSelect
 from Renders.Login.login import drawLogin
 from Renders.CharSelect.charSelect import drawCharSelect
 from Renders.CharCreate.charCreate import drawCharCreate
+from Renders.CharDelete.charDelete import drawCharDelete
 from Renders.ServerSelect.serverSelect import drawServerSelect
 from Renders.GameScreen.gameScreen import drawGame
 from Renders.EnterAccountInfo.enterAccountInfo import enterAccountInfo
@@ -65,6 +66,7 @@ def main(stdscr : curses.window, debugger : Debugger):
         Screen.login: drawLogin,
         Screen.charSelect: drawCharSelect,
         Screen.charCreate: drawCharCreate,
+        Screen.charDelete: drawCharDelete,
         Screen.serverSelect: drawServerSelect,
         Screen.gameScreen: drawGame,
     }
