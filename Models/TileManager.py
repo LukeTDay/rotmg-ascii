@@ -27,6 +27,18 @@ _OTHER_PLAYER_CHAR = "@"
 _GUILD_COLOR = "GREEN"
 _FRIEND_COLOR = "YELLOW"
 _LOCKED_FALLBACK_COLOR = "MAGENTA"
+_STRANGER_COLOR = "CYAN"
+
+# ctx["KEYBINDS"] field controlling which other players classifyObject lets
+# through - not a keybind, but stored/persisted alongside them (see
+# Utils/json/keybindLoader.py) the same way inputRouter.NEXUS_MODE_FIELD is.
+PLAYER_VISIBILITY_FIELD = "playerVisibility"
+PLAYER_VISIBILITY_SELF = "self"
+PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED = "friendsGuildLocked"
+PLAYER_VISIBILITY_EVERYONE = "everyone"
+_PLAYER_VISIBILITY_MODES = (
+    PLAYER_VISIBILITY_SELF, PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED, PLAYER_VISIBILITY_EVERYONE,
+)
 
 # NoWalk ground (GroundTypeData.noWalk, not renderMap's chars/color) renders
 # as a wall glyph so it reads as impassable instead of ordinary floor.
@@ -64,6 +76,20 @@ class RenderCell:
     colorName: str
 
 
+def getPlayerVisibility(keybinds: Dict[str, str]) -> str:
+    mode = keybinds.get(PLAYER_VISIBILITY_FIELD, PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED)
+    return mode if mode in _PLAYER_VISIBILITY_MODES else PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED
+
+
+def cyclePlayerVisibility(keybinds: Dict[str, str]) -> str:
+    """Cycles Self -> Friends/Guild/Locked -> Everyone -> Self, mirroring
+    inputRouter.toggleNexusMode's 2-value flip but for 3 values."""
+    current = getPlayerVisibility(keybinds)
+    nextMode = _PLAYER_VISIBILITY_MODES[(_PLAYER_VISIBILITY_MODES.index(current) + 1) % len(_PLAYER_VISIBILITY_MODES)]
+    keybinds[PLAYER_VISIBILITY_FIELD] = nextMode
+    return nextMode
+
+
 def otherPlayerRelationship(obj: GameObject, friendsList: Set[str], guildMembers: Set[str],
                              lockedAccounts: Set[str]) -> Optional[str]:
     """Which relationship makes a player-class object render: GUILD, FRIEND,
@@ -83,11 +109,13 @@ def otherPlayerRelationship(obj: GameObject, friendsList: Set[str], guildMembers
 
 
 def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[ObjectRenderInfo],
-                    friendsList: Set[str], guildMembers: Set[str], lockedAccounts: Set[str]) -> Optional[Tier]:
+                    friendsList: Set[str], guildMembers: Set[str], lockedAccounts: Set[str],
+                    playerVisibility: str = PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED) -> Optional[Tier]:
     """Single-pass tier precedence matching the render hierarchy: self ->
-    enemy -> wall -> portal -> interactive NPC -> other-player (friend/
-    guild/locked only) -> loot bag -> excluded. Non-matches are excluded
-    entirely, not downgraded to a lower tier.
+    enemy -> wall -> portal -> interactive NPC -> other-player (gated by
+    playerVisibility - see PLAYER_VISIBILITY_* above) -> loot bag ->
+    excluded. Non-matches are excluded entirely, not downgraded to a lower
+    tier.
     """
     if obj.objectId == listenerObjectId:
         return Tier.SELF
@@ -100,6 +128,10 @@ def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[Object
     if info is not None and info.isInteractiveNpc:
         return Tier.INTERACTIVE_NPC
     if ClassIds.idToClass(obj.objectType) is not None:
+        if playerVisibility == PLAYER_VISIBILITY_SELF:
+            return None
+        if playerVisibility == PLAYER_VISIBILITY_EVERYONE:
+            return Tier.OTHER_PLAYER
         if otherPlayerRelationship(obj, friendsList, guildMembers, lockedAccounts) is not None:
             return Tier.OTHER_PLAYER
         return None  # not a friend/guildmate/locked account: excluded
@@ -171,7 +203,8 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
                        lockedAccounts: Set[str], rng: random.Random,
                        charCache: Dict[Tuple[str, int, int, int], str],
                        perTile: PerTileIndex, visible: Dict[Tuple[int, int], RenderCell],
-                       viewRadius: int = VIEW_RADIUS_TILES) -> Dict[Tuple[int, int], RenderCell]:
+                       viewRadius: int = VIEW_RADIUS_TILES,
+                       playerVisibility: str = PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED) -> Dict[Tuple[int, int], RenderCell]:
     """Rebuilt fresh every frame from GameState/ProjectileStore rather than
     incrementally synced, to avoid duplicating GameState's own bookkeeping
     and risking drift. Cheap since `viewRadius` keeps the window small.
@@ -201,7 +234,7 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
         if not (minX <= tileX <= maxX and minY <= tileY <= maxY):
             continue
         info = objectRenderInfo(obj.objectType)
-        tier = classifyObject(obj, listenerObjectId, info, friendsList, guildMembers, lockedAccounts)
+        tier = classifyObject(obj, listenerObjectId, info, friendsList, guildMembers, lockedAccounts, playerVisibility)
         if tier is None:
             continue
         perTile[tier].setdefault((tileX, tileY), []).append(obj)
@@ -213,7 +246,9 @@ def buildVisibleTiles(state: GameState, projectiles: ProjectileStore, playerTile
         if owner is None:
             continue
         ownerInfo = objectRenderInfo(owner.objectType)
-        ownerTier = classifyObject(owner, listenerObjectId, ownerInfo, friendsList, guildMembers, lockedAccounts)
+        ownerTier = classifyObject(
+            owner, listenerObjectId, ownerInfo, friendsList, guildMembers, lockedAccounts, playerVisibility,
+        )
         if ownerTier not in (Tier.SELF, Tier.ENEMY):
             continue
         pos = proj.posAt(now)
@@ -269,12 +304,15 @@ def _resolveCell(key: Tuple[int, int],
             info = objectRenderInfo(winnerObj.objectType)
             return _internRenderCell(_SELF_CHAR, info.color if info is not None else _SELF_FALLBACK_COLOR)
         if tier == Tier.OTHER_PLAYER:
-            # Fixed '@' colored by relationship, not class sprite.
+            # Fixed '@' colored by relationship, not class sprite. None
+            # (a stranger, only reachable in PLAYER_VISIBILITY_EVERYONE mode)
+            # gets its own color rather than falling into the locked default.
             relationship = otherPlayerRelationship(winnerObj, friendsList, guildMembers, lockedAccounts)
             color = {
                 "GUILD": _GUILD_COLOR,
                 "FRIEND": _FRIEND_COLOR,
-            }.get(relationship, _LOCKED_FALLBACK_COLOR)
+                "LOCKED": _LOCKED_FALLBACK_COLOR,
+            }.get(relationship, _STRANGER_COLOR)
             return _internRenderCell(_OTHER_PLAYER_CHAR, color)
         info = objectRenderInfo(winnerObj.objectType)
         if info is None or not info.chars:

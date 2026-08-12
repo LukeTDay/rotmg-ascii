@@ -7,6 +7,10 @@ from Networking.PacketLogSettings import PacketLogSettings
 from Renders.EnterAccountInfo.enterAccountInfo import (
     centeredX, determineRefreshWindow, drawCenteredBanner, drawCenteredText, drawTextAt, figletLineCount,
 )
+from Models.TileManager import (
+    PLAYER_VISIBILITY_EVERYONE, PLAYER_VISIBILITY_FIELD, PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED,
+    PLAYER_VISIBILITY_SELF, cyclePlayerVisibility,
+)
 from Renders.GameScreen.inputRouter import NEXUS_MODE_FIELD, toggleNexusMode
 from Renders.PauseMenu import debugOptions
 from Renders.backgroundTexture import drawBackgroundTexture
@@ -18,6 +22,12 @@ _TAB_GAMEPLAY = "gameplay"
 _TAB_DEBUG = "debug"
 _SWITCH_TO_DEBUG_LABEL = "Debug Options"
 _SWITCH_TO_GAMEPLAY_LABEL = "Gameplay Settings"
+
+_PLAYER_VISIBILITY_LABELS = {
+    PLAYER_VISIBILITY_SELF: "Self",
+    PLAYER_VISIBILITY_FRIENDS_GUILD_LOCKED: "Friends & Locked & Guildmates",
+    PLAYER_VISIBILITY_EVERYONE: "Everyone",
+}
 
 
 def _normalizeKey(ch: str) -> str:
@@ -107,7 +117,10 @@ def drawKeybindConfig(stdscr: curses.window, ctx: Context) -> None:
                 y += 1
             elif tab == _TAB_GAMEPLAY:
                 field = gameplayFields[row]
-                value = pendingValue if isEditingRow else keybinds[field]
+                if field == PLAYER_VISIBILITY_FIELD:
+                    value = _PLAYER_VISIBILITY_LABELS.get(keybinds[field], keybinds[field])
+                else:
+                    value = pendingValue if isEditingRow else keybinds[field]
                 # Fixed per-row x, computed from the prompt alone (not the
                 # value) - drawn via drawTextAt instead of drawCenteredText, so
                 # the row doesn't recenter/shift as the typed value grows from
@@ -190,6 +203,11 @@ def drawKeybindConfig(stdscr: curses.window, ctx: Context) -> None:
                     newMode = toggleNexusMode(keybinds)
                     saveKeybinds(keybinds)
                     debugger.info(f"Nexus mode set to {newMode!r}")
+                elif field == PLAYER_VISIBILITY_FIELD:
+                    # A 3-value enum, same "Enter cycles + saves immediately" shape.
+                    newVisibility = cyclePlayerVisibility(keybinds)
+                    saveKeybinds(keybinds)
+                    debugger.info(f"Player visibility set to {newVisibility!r}")
                 else:
                     editing = True
                     pendingValue = ""

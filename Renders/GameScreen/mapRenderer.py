@@ -9,7 +9,7 @@ from Models.Context import Context, required
 from Models.GameState import GameState
 from Models.PlayerData import PlayerData
 from Models.ProjectileStore import ProjectileStore
-from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles, newPerTileIndex
+from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles, getPlayerVisibility, newPerTileIndex
 from Networking.Listener import Listener
 from Networking.Ticker import Ticker
 
@@ -123,6 +123,7 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     friendsList = ctx.get("FRIENDSLIST", set())
     guildMembers = ctx.get("GUILDMEMBERS", set())
     lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
+    playerVisibility = getPlayerVisibility(ctx.get("KEYBINDS", {}))
     # Owned by ctx, not recreated per-frame: TILE_CHAR_CACHE remembers each
     # multi-glyph tile's picked variant so it doesn't re-roll every redraw;
     # PER_TILE_INDEX/VISIBLE_TILES_BUFFER are buildVisibleTiles's reusable
@@ -138,7 +139,7 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
     frameStart = time.perf_counter()
     visibleTiles = buildVisibleTiles(
         state, projectiles, playerTileX, playerTileY, listener.objectId, friendsList, guildMembers, lockedAccounts,
-        rng, charCache, perTileIndex, visibleTilesBuffer, viewRadius,
+        rng, charCache, perTileIndex, visibleTilesBuffer, viewRadius, playerVisibility,
     )
     buildMs = (time.perf_counter() - frameStart) * 1000
 

@@ -6,5 +6,6 @@
     "autoFire": "f",
     "openChat": "/",
     "nexus": "r",
-    "nexusMode": "directConnect"
+    "nexusMode": "directConnect",
+    "playerVisibility": "friendsGuildLocked"
 }
