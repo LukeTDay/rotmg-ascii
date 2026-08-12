@@ -2,7 +2,7 @@ import curses
 import math
 import textwrap
 import time
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 from Constants import ColorPairs
 from Constants.StatTypes import StatTypes
@@ -35,14 +35,21 @@ def resolveClickedObject(state: GameState, listenerObjectId: int, worldX: float,
     Mirrors Models/TileManager.py's tier-priority logic exactly (imports and
     reuses classifyObject/_TIER_PRIORITY rather than reinventing the
     precedence rules) - among every object whose position floors to the same
-    tile as the click, the one with the highest-priority tier wins, same as
-    which glyph would actually be drawn there. Same renderPos-for-others/pos-
-    for-self pattern TileManager.buildVisibleTiles uses.
+    tile as the click, the highest-priority tier wins, same as which glyph
+    would actually be drawn there. Same renderPos-for-others/pos-for-self
+    pattern TileManager.buildVisibleTiles uses.
+
+    Ties within the same tier (e.g. two enemies overlapping one tile - a real
+    case in the tutorial's chicken room, where a boss is surrounded by a
+    constantly-spawning swarm of same-tier minion adds) break by distance
+    from the exact click position, not object-insertion order - otherwise
+    whichever enemy happened to spawn first kept winning every click on that
+    tile even once a different enemy had visibly moved closer to the cursor.
     """
     tileX, tileY = math.floor(worldX), math.floor(worldY)
     now = time.time()
     best: Optional[GameObject] = None
-    bestPriority: Optional[int] = None
+    bestKey: Optional[Tuple[int, float]] = None
     for obj in state.objects.values():
         pos = obj.pos if obj.objectId == listenerObjectId else obj.renderPos(now)
         if math.floor(pos.x) != tileX or math.floor(pos.y) != tileY:
@@ -52,8 +59,10 @@ def resolveClickedObject(state: GameState, listenerObjectId: int, worldX: float,
         if tier is None:
             continue
         priority = _TIER_PRIORITY.index(tier)
-        if bestPriority is None or priority < bestPriority:
-            bestPriority = priority
+        distance = math.hypot(pos.x - worldX, pos.y - worldY)
+        key = (priority, distance)
+        if bestKey is None or key < bestKey:
+            bestKey = key
             best = obj
     return best
 
