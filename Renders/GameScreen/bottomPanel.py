@@ -249,6 +249,18 @@ def _bagGridRowStartAndStride(layout: PanelLayout) -> Tuple[int, int]:
     return evenlySpacedRows(topBound, bottomBound, _BAG_GRID_ROWS)
 
 
+def _portalBlockStartRow(layout: PanelLayout, hasCycle: bool) -> int:
+    """Vertical center of the portal name/[ENTER]/cycle-button block within
+    the bottom section, rather than pinned to the section's top row - per
+    user request. Shared by the draw call and both click-resolvers below so
+    all three always agree on where the block actually sits."""
+    numLines = 3 if hasCycle else 2
+    topBound = _contentStartRow(layout)
+    bottomBound = layout.bottomSection.startRow + layout.bottomSection.height - 1
+    available = bottomBound - topBound + 1
+    return topBound + max(0, (available - numLines) // 2)
+
+
 def drawBottomPanel(pad: curses.window, layout: PanelLayout, ctx: Context, state: GameState, ticker: Ticker,
                      listenerObjectId: int, friendsList: Set[str], guildMembers: Set[str],
                      lockedAccounts: Set[str]) -> None:
@@ -259,12 +271,14 @@ def drawBottomPanel(pad: curses.window, layout: PanelLayout, ctx: Context, state
     if widget.kind == "portal" and widget.selected is not None:
         info = objectRenderInfo(widget.selected.objectType)
         name = info.name if info is not None else "Portal"
-        _writeLine(pad, startRow + _NAME_ROW_OFFSET, centeredCol(layout, len(name)), name, layout.panelWidth,
+        hasCycle = len(widget.candidates) > 1
+        portalRow = _portalBlockStartRow(layout, hasCycle)
+        _writeLine(pad, portalRow + _NAME_ROW_OFFSET, centeredCol(layout, len(name)), name, layout.panelWidth,
                    defaultAttr)
-        _writeLine(pad, startRow + _ENTER_ROW_OFFSET, centeredCol(layout, len(_ENTER_BUTTON_TEXT)),
+        _writeLine(pad, portalRow + _ENTER_ROW_OFFSET, centeredCol(layout, len(_ENTER_BUTTON_TEXT)),
                    _ENTER_BUTTON_TEXT, layout.panelWidth, defaultAttr)
-        if len(widget.candidates) > 1:
-            cycleRow, cycleCol, _ = _cycleButtonRect(layout, startRow + _PORTAL_CYCLE_ROW_OFFSET)
+        if hasCycle:
+            cycleRow, cycleCol, _ = _cycleButtonRect(layout, portalRow + _PORTAL_CYCLE_ROW_OFFSET)
             cycleText = f"[>] {widget.cycleIndex + 1}/{len(widget.candidates)}"
             _writeLine(pad, cycleRow, cycleCol, cycleText, layout.panelWidth, defaultAttr)
 
@@ -339,8 +353,8 @@ def drawBottomPanel(pad: curses.window, layout: PanelLayout, ctx: Context, state
                 _writeLine(pad, screenRow, screenCol, text, barWidth, attr)
 
 
-def resolveEnterButtonClick(layout: PanelLayout, mouseRow: int, mouseCol: int) -> bool:
-    row = _contentStartRow(layout) + _ENTER_ROW_OFFSET
+def resolveEnterButtonClick(layout: PanelLayout, hasCycle: bool, mouseRow: int, mouseCol: int) -> bool:
+    row = _portalBlockStartRow(layout, hasCycle) + _ENTER_ROW_OFFSET
     if mouseRow != row:
         return False
     colStart = centeredCol(layout, len(_ENTER_BUTTON_TEXT))
@@ -348,12 +362,11 @@ def resolveEnterButtonClick(layout: PanelLayout, mouseRow: int, mouseCol: int) -
     return colStart <= mouseCol < colEnd
 
 
-def resolveCycleButtonClick(layout: PanelLayout, widgetKind: str, mouseRow: int, mouseCol: int) -> bool:
-    startRow = _contentStartRow(layout)
+def resolveCycleButtonClick(layout: PanelLayout, widgetKind: str, hasCycle: bool, mouseRow: int, mouseCol: int) -> bool:
     if widgetKind == "portal":
-        row = startRow + _PORTAL_CYCLE_ROW_OFFSET
+        row = _portalBlockStartRow(layout, hasCycle) + _PORTAL_CYCLE_ROW_OFFSET
     elif widgetKind == "bag":
-        row = startRow + _BAG_LABEL_ROW_OFFSET
+        row = _contentStartRow(layout) + _BAG_LABEL_ROW_OFFSET
     else:
         return False
     _, colStart, colEnd = _cycleButtonRect(layout, row)

@@ -142,14 +142,15 @@ def handlePanelInput(mouseEvent: Optional[Tuple[int, int, int]], stdscr: curses.
         widget = bottomPanel.resolveActiveWidget(ctx, state, ticker, listener.objectId, friendsList, guildMembers,
                                                   lockedAccounts)
 
-        if bottomPanel.resolveCycleButtonClick(layout, widget.kind, mouseRow, mouseCol):
+        hasCycle = len(widget.candidates) > 1
+        if bottomPanel.resolveCycleButtonClick(layout, widget.kind, hasCycle, mouseRow, mouseCol):
             if widget.candidates:
                 ctx["BOTTOM_PANEL_CYCLE_INDEX"] = (ctx.get("BOTTOM_PANEL_CYCLE_INDEX", 0) + 1) % len(
                     widget.candidates)
             return
 
         if widget.kind == "portal" and widget.selected is not None:
-            if bottomPanel.resolveEnterButtonClick(layout, mouseRow, mouseCol):
+            if bottomPanel.resolveEnterButtonClick(layout, hasCycle, mouseRow, mouseCol):
                 packet = PacketHelper.createPacket("USEPORTAL")
                 packet.objectId = widget.selected.objectId
                 outgoingQueue.put(packet)

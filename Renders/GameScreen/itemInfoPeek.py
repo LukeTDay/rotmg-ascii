@@ -107,6 +107,7 @@ def drawItemInfoPeek(pad: curses.window, layout: PanelLayout, peekedObjectType: 
         return True
 
     if peekedObjectType is None:
+        row = section.startRow + section.height // 2
         writeLine(_PLACEHOLDER_TEXT)
         return
 
