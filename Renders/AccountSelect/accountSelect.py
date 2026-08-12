@@ -17,7 +17,7 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
     try:
         storedAccounts = credential_loader()
     except json.JSONDecodeError as e:
-        debugger.exception("Failed to parse Credentials/account_credentials.json")
+        debugger.exception("Failed to parse Config/Account Credentials/account_credentials.json")
         stdscr.erase()
         pad = curses.newpad(1500, 500)
         pad.keypad(True)
@@ -112,10 +112,11 @@ def drawAccountSelect(stdscr : curses.window, ctx : Context) -> Screen:
                 return Screen.enterAccountInfo
             elif removeMode:
                 storedAccounts.pop(selected)
-                tempLoc = tempfile.NamedTemporaryFile(mode="w", dir="Credentials/", delete=False, encoding="utf-8")
+                accountCredentialsDir = "Config/Account Credentials/"
+                tempLoc = tempfile.NamedTemporaryFile(mode="w", dir=accountCredentialsDir, delete=False, encoding="utf-8")
                 json.dump(storedAccounts, tempLoc, indent=4)
                 tempLoc.close()
-                os.replace(tempLoc.name, "Credentials/account_credentials.json")
+                os.replace(tempLoc.name, accountCredentialsDir + "account_credentials.json")
                 removeMode = False
                 selected = 0
                 selectionChanged = True

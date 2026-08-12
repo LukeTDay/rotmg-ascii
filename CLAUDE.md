@@ -130,7 +130,7 @@ Interactive curses form for entering a new account's email/password/alias, verif
 
 ### `AccountSelect/accountSelect.py`
 
-Lists saved accounts from `Credentials/account_credentials.json` (scrollable, arrow/WASD navigation), lets the user pick one (→ `Screen.login`) or add a new one (→ `Screen.enterAccountInfo`).
+Lists saved accounts from `Config/Account Credentials/account_credentials.json` (scrollable, arrow/WASD navigation), lets the user pick one (→ `Screen.login`) or add a new one (→ `Screen.enterAccountInfo`).
 
 ### `Login/login.py`
 
@@ -196,7 +196,7 @@ Small loader/parser modules with no state of their own beyond an internal cache.
 
 ### `Utils/json/`
 
-- **`accCredLoader.py`** — `credential_loader()`: reads `Credentials/account_credentials.json` into a list of `AccountData`.
+- **`accCredLoader.py`** — `credential_loader()`: reads `Config/Account Credentials/account_credentials.json` into a list of `AccountData`.
 - **`objectNameLoader.py`** — cached lookups into `Resources/renderMap.json`. `objectRenderInfo(objectType)` / `groundRenderInfo(groundType)` return an `ObjectRenderInfo`/`GroundRenderInfo` (name, chars, color, blocksMovement/isEnemy/isLootBag/isPortal/isInteractiveNpc). `objectIdToName(objectType)` is a thin name-only wrapper. Loaded once, cached in module-level dicts.
 - **`projectileMapLoader.py`** — cached lookups into `Resources/projectileMap.json`. `projectileMapLoader()` loads the whole file; `getProjectileDefinition(map, ownerObjectType, projectileId)` looks up one; `resolveShotProjectileIds(map, ownerObjectType, numProjectiles)` figures out which projectile id each shot in a multi-shot fan actually uses (tiered bows fire a stronger center arrow + weaker side arrows from two distinct definitions — see the function's docstring for how the ranking works).
 
@@ -262,10 +262,15 @@ Not code — the generated data files the app reads at runtime.
 
 ---
 
-## `Credentials/`
+## `Config/`
 
-- **`account_credentials.json`** (gitignored) — saved accounts (`alias`/`email`/`password`), written atomically (tempfile + `os.replace`) by `enterAccountInfo.py`, read by `Utils/json/accCredLoader.py`.
-- **`account_credentials.jsonEXAMPLE`** — tracked template showing the expected shape.
+Personal, per-machine config/state, gitignored (blanket `*.json` rule in `.gitignore`). Each file lives in its own subfolder named after it, so `.jsonEXAMPLE` templates (tracked — they don't match the `*.json` glob) sit right next to the live file they document.
+
+- **`Account Credentials/account_credentials.json`** — saved accounts (`alias`/`email`/`password`), written atomically (tempfile + `os.replace`) by `enterAccountInfo.py`/`accountSelect.py`, read by `Utils/json/accCredLoader.py`.
+  - **`account_credentials.jsonEXAMPLE`** — tracked template showing the expected shape.
+- **`Keybinds/keybinds.json`** — personal keybind overrides, layered onto `Resources/keybindsDefault.json` by `Utils/json/keybindLoader.py`; written by `saveKeybinds` (`Renders/PauseMenu/keybindConfig.py`).
+- **`Last Server/last_server.json`** — last-selected server name, read/written by `Utils/json/lastServerLoader.py`.
+- **`Debug Settings/debugSettings.json`** — personal packet-logging prefs, read/written by `Utils/json/debugSettingsLoader.py` (`Renders/PauseMenu/debugOptions.py`). Not created until the DEBUG tab's settings are changed at least once.
 
 ---
 

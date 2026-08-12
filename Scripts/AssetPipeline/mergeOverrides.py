@@ -3,7 +3,7 @@ Merges hand-curated overrides onto the auto-derived render info and writes
 the final `Resources/renderMap.json`.
 
 Same tracked-template/gitignored-live-file split as
-`Credentials/account_credentials.json` (see CLAUDE.md):
+`Config/Account Credentials/account_credentials.json` (see CLAUDE.md):
 `renderMapOverrides.jsonEXAMPLE` is tracked; `renderMapOverrides.json` is
 gitignored and not auto-created - copy the example to activate it.
 

@@ -3,7 +3,8 @@ import json
 import os
 import tempfile
 
-LAST_SERVER_PATH = "Credentials/last_server.json"
+LAST_SERVER_DIR = "Config/Last Server/"
+LAST_SERVER_PATH = LAST_SERVER_DIR + "last_server.json"
 
 
 def loadLastServer() -> Optional[str]:
@@ -20,10 +21,9 @@ def loadLastServer() -> Optional[str]:
 def saveLastServer(name: str) -> None:
     """Atomically writes the last-selected server name, mirroring
     keybindLoader.saveKeybinds's tempfile+os.replace pattern."""
-    if not os.path.isdir("Credentials/"):
-        os.mkdir("Credentials")
+    os.makedirs(LAST_SERVER_DIR, exist_ok=True)
 
-    tempLoc = tempfile.NamedTemporaryFile(mode="w", dir="Credentials/", delete=False, encoding="utf-8")
+    tempLoc = tempfile.NamedTemporaryFile(mode="w", dir=LAST_SERVER_DIR, delete=False, encoding="utf-8")
     json.dump({"name": name}, tempLoc, indent=4)
     tempLoc.close()
     os.replace(tempLoc.name, LAST_SERVER_PATH)

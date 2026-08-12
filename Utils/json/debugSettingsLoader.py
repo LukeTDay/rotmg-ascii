@@ -3,7 +3,8 @@ import json
 import os
 import tempfile
 
-PERSONAL_DEBUG_SETTINGS_PATH = "Credentials/debugSettings.json"
+PERSONAL_DEBUG_SETTINGS_DIR = "Config/Debug Settings/"
+PERSONAL_DEBUG_SETTINGS_PATH = PERSONAL_DEBUG_SETTINGS_DIR + "debugSettings.json"
 
 
 def loadDebugSettings() -> Tuple[str, Set[str]]:
@@ -23,10 +24,9 @@ def loadDebugSettings() -> Tuple[str, Set[str]]:
 
 
 def saveDebugSettings(level: str, disabledPackets: Set[str]) -> None:
-    if not os.path.isdir("Credentials/"):
-        os.mkdir("Credentials")
+    os.makedirs(PERSONAL_DEBUG_SETTINGS_DIR, exist_ok=True)
 
-    tempLoc = tempfile.NamedTemporaryFile(mode="w", dir="Credentials/", delete=False, encoding="utf-8")
+    tempLoc = tempfile.NamedTemporaryFile(mode="w", dir=PERSONAL_DEBUG_SETTINGS_DIR, delete=False, encoding="utf-8")
     json.dump({"logLevel": level, "disabledPackets": sorted(disabledPackets)}, tempLoc, indent=4)
     tempLoc.close()
     os.replace(tempLoc.name, PERSONAL_DEBUG_SETTINGS_PATH)

@@ -220,14 +220,15 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
     }
     storedAccounts.append(newEntry)
 
-    dirExists = os.path.isdir("Credentials/")
+    accountCredentialsDir = "Config/Account Credentials/"
+    dirExists = os.path.isdir(accountCredentialsDir)
     if not dirExists:
         try:
-            os.mkdir("Credentials")
+            os.makedirs(accountCredentialsDir)
         except PermissionError:
-            debugger.exception("No permission to create Credentials/ directory")
+            debugger.exception("No permission to create Config/Account Credentials/ directory")
             yIndex += 2
-            msg1 = _centeredLine(stdscr, pad, yIndex, "Credentials directory does not exist and insufficient "
+            msg1 = _centeredLine(stdscr, pad, yIndex, "Config/Account Credentials directory does not exist and insufficient "
             "permission to create a new one. Please create the directory yourself or run "
             "the program with higher authority.")
             yIndex += 1
@@ -235,7 +236,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             _waitForKey(stdscr, pad, ctx, transcript, yIndex, extra=(msg1, msg2))
             return Screen.exit
         except Exception as e:
-            debugger.exception("Unexpected error creating Credentials/ directory")
+            debugger.exception("Unexpected error creating Config/Account Credentials/ directory")
             yIndex += 2
             msg1 = _centeredLine(stdscr, pad, yIndex, "Unexpected error occured when trying to create a directory to store the credentials.")
             yIndex += 1
@@ -245,10 +246,10 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
             _renderFrame(stdscr, pad, ctx, transcript, yIndex, extra=(msg1, msg2, msg3))
             return Screen.exit
 
-    tempLoc = tempfile.NamedTemporaryFile(mode="w",dir="Credentials/", delete=False, encoding="utf-8")
+    tempLoc = tempfile.NamedTemporaryFile(mode="w",dir=accountCredentialsDir, delete=False, encoding="utf-8")
     json.dump(storedAccounts,tempLoc, indent=4)
     tempLoc.close()
-    os.replace(tempLoc.name, "Credentials/account_credentials.json")
+    os.replace(tempLoc.name, accountCredentialsDir + "account_credentials.json")
 
     return Screen.accountSelect
 
