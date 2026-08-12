@@ -134,7 +134,7 @@ def drawBars(pad: curses.window, layout: PanelLayout, player: PlayerData) -> Non
     fullWidth = max(1, layout.panelWidth)
 
     if player.level < MAX_LEVEL:
-        _drawBar(pad, row + _BAR_ROW_OFFSETS[0], col, "XP", player.xp, player.nextLevelXp,
+        _drawBar(pad, row + _BAR_ROW_OFFSETS[0], col, f"LVL {player.level}", player.xp, player.nextLevelXp,
                  ColorPairs.FILL_WHITE, ColorPairs.MAP_WHITE, fullWidth)
     else:
         _drawSolidBar(pad, row + _BAR_ROW_OFFSETS[0], col, player.fame, ColorPairs.FILL_YELLOW, fullWidth)

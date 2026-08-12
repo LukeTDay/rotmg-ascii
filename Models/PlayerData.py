@@ -87,7 +87,7 @@ class PlayerData:
             elif stat.statType == StatTypes.LEVELSTAT:
                 self.level = stat.statValue
             elif stat.statType == StatTypes.EXPSTAT:
-                self.xp = stat.statValue
+                self.xp = int(stat.strStatValue)
             elif stat.statType == StatTypes.CURRFAMESTAT:
                 self.fame = stat.statValue
             elif stat.statType == StatTypes.NUMSTARSSTAT:
