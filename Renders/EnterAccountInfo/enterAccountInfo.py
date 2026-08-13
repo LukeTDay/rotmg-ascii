@@ -48,6 +48,7 @@ def enterAccountInfo(stdscr : curses.window, ctx : Context) -> Screen:
         transcript.append(_centeredLine(stdscr, pad, yIndex, "You do not have any accounts stored."))
         yIndex += 1
         transcript.append(_centeredLine(stdscr, pad, yIndex, "You must input an account to move forward"))
+        yIndex += 2
 
     # Anchor to reset back to if this section needs to be retried.
     currYIndex = yIndex
