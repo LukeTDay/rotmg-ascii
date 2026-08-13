@@ -1,7 +1,7 @@
 import math
 import time
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import Networking.PacketHelper as PacketHelper
 from Constants.StatTypes import StatTypes
@@ -121,6 +121,57 @@ class HitTracker:
                 )
 
 
+# How long a boss stays pinned as the displayed target (Renders/GameScreen/
+# enemyHealthBar.py) after the last hit on it, before a hit on something else
+# is allowed to switch the display - refreshed on every re-hit of the boss.
+_BOSS_LOCK_MS = 3000.0
+
+# Default minimum gap between any two target switches, for every creature
+# (boss or not) - without this, hitting several enemies in the same frame/
+# volley (e.g. a piercing shot, or a fast weapon tagging two mobs a tick
+# apart) makes the bar flicker between them.
+_SWITCH_COOLDOWN_MS = 250.0
+
+
+class EnemyTargetTracker:
+    """Tracks which enemy the local player is "currently fighting" for the
+    top-of-screen HP bar - fed from the same per-frame hit loop as
+    HitTracker above (checkProjectileHits calls recordHit right where it
+    calls hitTracker.recordSent). A non-boss hit switches the display once
+    _SWITCH_COOLDOWN_MS has passed since the last switch; a boss hit instead
+    pins the display to it for _BOSS_LOCK_MS, refreshed on every further hit
+    on that same boss, so hitting adjacent trash mobs mid-fight doesn't
+    bounce the bar away from the boss.
+    """
+
+    def __init__(self):
+        self.targetId: Optional[int] = None
+        self.isBossTarget: bool = False
+        self.bossLockUntil: float = 0.0
+        self.lastSwitchMs: float = -math.inf
+
+    def recordHit(self, objectId: int, isBoss: bool, nowMs: float) -> None:
+        if self.targetId == objectId:
+            if isBoss:
+                self.bossLockUntil = nowMs + _BOSS_LOCK_MS
+            return
+        if self.targetId is not None:
+            if self.isBossTarget and nowMs < self.bossLockUntil:
+                return  # still locked onto the current boss - ignore other hits
+            if nowMs - self.lastSwitchMs < _SWITCH_COOLDOWN_MS:
+                return  # switched too recently - ignore for now
+        self.targetId = objectId
+        self.isBossTarget = isBoss
+        self.bossLockUntil = nowMs + _BOSS_LOCK_MS if isBoss else 0.0
+        self.lastSwitchMs = nowMs
+
+    def clear(self) -> None:
+        self.targetId = None
+        self.isBossTarget = False
+        self.bossLockUntil = 0.0
+        self.lastSwitchMs = -math.inf
+
+
 def _enemyRadiusTiles(obj) -> float:
     info = objectRenderInfo(obj.objectType)
     hitboxScale = info.hitboxScale if info is not None else None
@@ -132,7 +183,8 @@ def _enemyRadiusTiles(obj) -> float:
 
 
 def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId: int,
-                         nowMs: int, outgoingQueue: "object", hitTracker: HitTracker, debugger) -> None:
+                         nowMs: int, outgoingQueue: "object", hitTracker: HitTracker,
+                         targetTracker: EnemyTargetTracker, debugger) -> None:
     """Client-side hit detection for the local player's own in-flight shots.
     RotMG expects the shooter's own client to report ENEMYHIT (confirmed via
     MITM capture) - the server has no fine-grained collision of its own to
@@ -205,6 +257,7 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
             outgoingQueue.put(packet)
             if liveHp is not None:
                 hitTracker.recordSent(proj.bulletId, obj.objectId, dist, radius, obj.objectType, info.name, liveHp.statValue)
+            targetTracker.recordHit(obj.objectId, info.isBoss, nowMs)
             if _VERBOSE_HIT_LOGGING:
                 debugger.debug(
                     f"ENEMYHIT sent: {info.name} (type={obj.objectType}) bulletId={proj.bulletId} "

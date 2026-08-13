@@ -14,8 +14,8 @@ from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
-from Renders.GameScreen import bottomPanel, chatPanel, inventoryPanel, itemInfoPeek, miniMap, uiPanel
-from Renders.GameScreen.hitDetection import HitTracker, checkProjectileHits
+from Renders.GameScreen import bottomPanel, chatPanel, enemyHealthBar, inventoryPanel, itemInfoPeek, miniMap, uiPanel
+from Renders.GameScreen.hitDetection import EnemyTargetTracker, HitTracker, checkProjectileHits
 from Renders.GameScreen.inputRouter import NEXUS_MODE_DIRECT_CONNECT, getNexusMode, isNexusKey
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
@@ -390,6 +390,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
     projectileMap = projectileMapLoader()
     shootState = AutoFireState()
     hitTracker = HitTracker()
+    targetTracker = EnemyTargetTracker()
 
     # See GC_COLLECT_INTERVAL_SECONDS above - confirmed via debug.txt that
     # automatic cyclic GC was the source of the periodic drawFrame spikes.
@@ -472,19 +473,23 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                         )
         except queue.Empty:
             pass
+        # Hoisted above the objectId guard below - enemyHealthBar.drawEnemyHealthBar
+        # needs it every frame, not just once there's a local player object.
+        nowMs = int(time.time() * 1000) - ticker.connectedTime
         if player.objectId != 0:
             # ownerId must match what shootInput.py/_spawnProjectiles stored
             # on each Projectile (player.objectId, not listener.objectId) -
             # they converge once CREATESUCCESS/the matching UPDATE lands, but
             # player.objectId's own unset default is 0, not listener's -1.
-            nowMs = int(time.time() * 1000) - ticker.connectedTime
-            checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue, hitTracker, debugger)
+            checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue, hitTracker,
+                                 targetTracker, debugger)
         hitTracker.pruneTimeouts(debugger)
         projectiles.prune()
         queueDrainMs = (time.time() - queueDrainStart) * 1000
 
         drawFrameStart = time.time()
         drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
+        enemyHealthBar.drawEnemyHealthBar(pad, stdscr, state, targetTracker, nowMs)
         # Panel frame + relocated HUD bars + inventory grid + item-info peek
         # + bottom-panel widget are drawn on top of the same pad drawFrame
         # just drew the map onto - this app composites everything onto one

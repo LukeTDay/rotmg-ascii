@@ -101,6 +101,7 @@ class RenderInfo:
     isInteractiveNpc: bool = False
     isBeacon: bool = False
     isBeaconMarker: bool = False
+    isBoss: bool = False
     weaponLabel: str = ""
     bagColorTier: str = _UNTIERED_BAG_COLOR
     # Item-info-peek fields, straight from ParsedEntity - see that dataclass's
@@ -262,6 +263,7 @@ def deriveRenderInfo(
         isPortal=entity.isPortal,
         isInteractiveNpc=entity.isInteractiveNpc,
         isBeaconMarker=entity.isBeaconMarker,
+        isBoss=entity.isBoss,
         weaponLabel=entity.weaponLabel,
         bagColorTier=deriveBagColorTier(entity.tier),
         tier=entity.tier,

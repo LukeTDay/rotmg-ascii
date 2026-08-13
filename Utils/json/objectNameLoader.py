@@ -17,6 +17,9 @@ class ObjectRenderInfo:
     isInteractiveNpc: bool = False
     isBeacon: bool = False
     isBeaconMarker: bool = False
+    # Real client's own boss-health-bar marker (<HealthBarBoss> in the game's
+    # XML) - see Scripts/AssetPipeline/parseGameXml.py's ParsedEntity.isBoss.
+    isBoss: bool = False
     # Equipment-item fields for the item-info-peek/inventory UI - absent
     # (falls back to these defaults) on every non-equipment object, since
     # renderMap.json only carries them for `<Object>` elements that had the
@@ -78,6 +81,7 @@ def _loadObjectInfo() -> Dict[int, ObjectRenderInfo]:
                 isInteractiveNpc=entry.get("isInteractiveNpc", False),
                 isBeacon=entry.get("isBeacon", False),
                 isBeaconMarker=entry.get("isBeaconMarker", False),
+                isBoss=entry.get("isBoss", False),
                 weaponLabel=entry.get("weaponLabel", ""),
                 bagColorTier=entry.get("bagColorTier", "WHITE"),
                 tier=entry.get("tier"),

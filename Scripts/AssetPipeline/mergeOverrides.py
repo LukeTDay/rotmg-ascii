@@ -52,6 +52,7 @@ def mergeOverrides(derived: dict[str, dict[int, RenderInfo]], overrides: dict) -
                 "isInteractiveNpc": info.isInteractiveNpc,
                 "isBeacon": info.isBeacon,
                 "isBeaconMarker": info.isBeaconMarker,
+                "isBoss": info.isBoss,
                 "weaponLabel": info.weaponLabel,
                 "bagColorTier": info.bagColorTier,
                 "tier": info.tier,
