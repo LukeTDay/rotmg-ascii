@@ -11,7 +11,7 @@ class Projectile:
                  speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None,
                  visualObjectType: Optional[int] = None, multiHit: bool = False, armorPiercing: bool = False,
                  minDamage: Optional[int] = None, maxDamage: Optional[int] = None,
-                 amplitude: float = 0.0, frequency: float = 0.0):
+                 amplitude: float = 0.0, frequency: float = 0.0, fromEnemy: bool = False):
         self.bulletId = bulletId
         self.ownerId = ownerId
         self.shotIndex = shotIndex
@@ -51,6 +51,15 @@ class Projectile:
         self.amplitude = amplitude
         self.frequency = frequency
         self.hitTargetIds: Set[int] = set()
+        # Set at spawn (ENEMYSHOOT vs SERVERPLAYERSHOOT) - lets hitDetection.
+        # checkPlayerHits tell an enemy's bullet from a player's own without
+        # re-deriving it later from state.objects, which may no longer have
+        # the shooter (e.g. it died) by the time the projectile is checked.
+        self.fromEnemy = fromEnemy
+        # A player-hitting bullet can only hit the local player once; unlike
+        # hitTargetIds (per-enemy-id, for multiHit shots hitting several
+        # enemies) there's only ever one local player to track.
+        self.hitLocalPlayer = False
 
     def isExpired(self, now: Optional[float] = None) -> bool:
         now = time.time() if now is None else now
@@ -91,11 +100,11 @@ class ProjectileStore:
               speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None, shotIndex: int = 0,
               visualObjectType: Optional[int] = None, multiHit: bool = False, armorPiercing: bool = False,
               minDamage: Optional[int] = None, maxDamage: Optional[int] = None,
-              amplitude: float = 0.0, frequency: float = 0.0) -> None:
+              amplitude: float = 0.0, frequency: float = 0.0, fromEnemy: bool = False) -> None:
         key = (ownerId, bulletId, shotIndex)
         self.projectiles[key] = Projectile(
             bulletId, ownerId, shotIndex, startingPos, angle, speed, damage, lifetimeMS, size, visualObjectType,
-            multiHit, armorPiercing, minDamage, maxDamage, amplitude, frequency,
+            multiHit, armorPiercing, minDamage, maxDamage, amplitude, frequency, fromEnemy,
         )
 
     def remove(self, ownerId: int, bulletId: int, shotIndex: int = 0) -> None:

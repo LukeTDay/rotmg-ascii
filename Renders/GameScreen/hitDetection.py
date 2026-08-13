@@ -245,3 +245,48 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
 
         if hitSomething and not proj.multiHit:
             projectiles.remove(proj.ownerId, proj.bulletId, proj.shotIndex)
+
+
+# RotMG's real player collision radius - unlike enemies, every player uses
+# the same fixed 0.5-tile hitbox regardless of class/size.
+_PLAYER_RADIUS_TILES = 0.5
+
+
+def checkPlayerHits(projectiles: ProjectileStore, ownerId: int, playerPos,
+                     outgoingQueue: "object", debugger) -> None:
+    """Client-side hit detection for enemy projectiles against the local
+    player - the mirror of checkProjectileHits above, but incoming instead
+    of outgoing. Same protocol convention as ENEMYHIT: the client on the
+    receiving end reports the hit (PLAYERHIT), and the server applies the
+    real damage/defense math and echoes the reduced HPSTAT back on the next
+    NEWTICK - which the HUD HP bar (Renders/GameScreen/inventoryPanel.
+    drawBars) already renders straight from player.hp, so no extra plumbing
+    is needed for it to show up.
+
+    Only checks projectiles flagged `fromEnemy` at spawn time (see
+    Models/ProjectileStore.py) - never the local player's own shots, and
+    never another player's (this app doesn't track other players' shots as
+    a threat since PvP isn't a thing in these realms).
+    """
+    if playerPos is None:
+        return
+    now = time.time()
+    for proj in list(projectiles.projectiles.values()):
+        if not proj.fromEnemy or proj.ownerId == ownerId or proj.hitLocalPlayer or proj.isExpired(now):
+            continue
+
+        pos = proj.posAt(now)
+        dist = math.hypot(pos.x - playerPos.x, pos.y - playerPos.y)
+        if dist > _PLAYER_RADIUS_TILES:
+            continue
+
+        packet = PacketHelper.createPacket("PLAYERHIT")
+        packet.bulletId = proj.bulletId
+        packet.objectId = proj.ownerId
+        outgoingQueue.put(packet)
+        proj.hitLocalPlayer = True
+        if _VERBOSE_HIT_LOGGING:
+            debugger.debug(f"PLAYERHIT sent: ownerId={proj.ownerId} bulletId={proj.bulletId} distance={dist:.3f}")
+
+        if not proj.multiHit:
+            projectiles.remove(proj.ownerId, proj.bulletId, proj.shotIndex)

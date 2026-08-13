@@ -15,7 +15,7 @@ from Networking.Ticker import computeSpeed
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen import bottomPanel, chatPanel, enemyHealthBar, inventoryPanel, itemInfoPeek, miniMap, uiPanel
-from Renders.GameScreen.hitDetection import EnemyTargetTracker, HitTracker, checkProjectileHits
+from Renders.GameScreen.hitDetection import EnemyTargetTracker, HitTracker, checkPlayerHits, checkProjectileHits
 from Renders.GameScreen.inputRouter import NEXUS_MODE_DIRECT_CONNECT, getNexusMode, isNexusKey
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
@@ -281,7 +281,7 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
 
 def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: int, projectileIds,
                        ownerId: int, bulletId: int, startingPos, baseAngle: float, angleInc: float,
-                       numShots: int, damage: int) -> None:
+                       numShots: int, damage: int, fromEnemy: bool = False) -> None:
     """Fans out `numShots` bullets from `baseAngle`, each offset by `angleInc` -
     one shoot packet covers the whole burst, not one per bullet.
     `projectileIds` is per-shot (tiered bows fire a stronger center arrow and
@@ -308,6 +308,7 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
             armorPiercing=definition.armorPiercing,
             amplitude=amplitude,
             frequency=frequency,
+            fromEnemy=fromEnemy,
             # No minDamage/maxDamage here - `damage` above is already the
             # server's own authoritative value for this echoed shot (from
             # SERVERPLAYERSHOOT/ENEMYSHOOT), better than a fresh local roll.
@@ -456,6 +457,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             projectiles, projectileMap, owner.objectType, [event.bulletType] * numShots,
                             event.ownerId, event.bulletId, event.startingPos,
                             event.angle, event.angleInc, numShots, event.damage,
+                            fromEnemy=True,
                         )
                 elif event.type == "TEXT":
                     chatPanel.recordIncomingText(ctx, event, listener.objectId)
@@ -483,6 +485,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             # player.objectId's own unset default is 0, not listener's -1.
             checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue, hitTracker,
                                  targetTracker, debugger)
+            checkPlayerHits(projectiles, player.objectId, ticker.pos, outgoingQueue, debugger)
         hitTracker.pruneTimeouts(debugger)
         projectiles.prune()
         queueDrainMs = (time.time() - queueDrainStart) * 1000
