@@ -40,6 +40,7 @@ DEFAULT_CHARS = {"objects": "*", "ground": "."}
 PORTAL_CHAR = "^"
 INTERACTIVE_NPC_CHAR = "?"
 LOOT_BAG_CHAR = "$"
+BEACON_MARKER_CHAR = "%"  # matches the minimap's teleport-target glyph
 
 # Below this brightness (max channel), a pixel counts as outline/shadow,
 # not identity color, during the center-out fallback search.
@@ -98,6 +99,8 @@ class RenderInfo:
     isLootBag: bool = False
     isPortal: bool = False
     isInteractiveNpc: bool = False
+    isBeacon: bool = False
+    isBeaconMarker: bool = False
     weaponLabel: str = ""
     bagColorTier: str = _UNTIERED_BAG_COLOR
     # Item-info-peek fields, straight from ParsedEntity - see that dataclass's
@@ -166,6 +169,27 @@ def deriveRenderInfo(
     sprite_index: dict[str, dict[int, SpriteRect]],
     sheet_images: dict[str, Image.Image],
 ) -> RenderInfo | None:
+    if entity.isBeacon:
+        # Real teleportable beacons use an "invisible" texture by design (see
+        # parseGameXml's textureRefs carve-out for isBeacon) - nothing to
+        # derive a sprite color from, and nothing ever draws them on the main
+        # map. Only the isBeacon flag itself matters downstream.
+        return RenderInfo(
+            name=entity.name,
+            chars=[DEFAULT_CHARS.get(category, "?")],
+            color="WHITE",
+            blocksMovement=entity.blocksMovement,
+            isBeacon=True,
+            weaponLabel=entity.weaponLabel,
+            bagColorTier=deriveBagColorTier(entity.tier),
+            tier=entity.tier,
+            mpCost=entity.mpCost,
+            mpEndCost=entity.mpEndCost,
+            description=entity.description,
+            baseSize=entity.baseSize,
+            hitboxScale=entity.hitboxScale,
+        )
+
     rects = resolveSpriteRects(entity, sprite_index)
     if not rects:
         return None
@@ -176,7 +200,24 @@ def deriveRenderInfo(
     # wall > portal > NPC) - some entities are flagged as more than one
     # (e.g. "DPS Guill" is both Enemy and Merchant), and whichever check
     # wins here must match what classifyObject renders at runtime.
-    if entity.isEnemy:
+    #
+    # isBeaconMarker checked first, ahead of even isEnemy: a few "Captured
+    # Beacon *" variants incidentally carry <Enemy/> too (see
+    # ParsedEntity.isBeaconMarker), but every beacon marker should render as
+    # '%' consistently, not sometimes fall back to an enemy letter-glyph.
+    # classifyObject still tiers an Enemy-flagged one as Tier.ENEMY (that
+    # only affects render precedence when sharing a tile, not the glyph
+    # itself, which is fixed here regardless of tier).
+    if entity.isBeaconMarker:
+        color = nearestCursesColor(r, g, b)
+        if color == "BLACK":
+            found = findRepresentativeColor(sheet_images[rect.sheet], rect)
+            if found is not None:
+                color = nearestCursesColor(*found)
+            if color == "BLACK":
+                color = VISIBLE_FALLBACK_COLOR
+        chars = [BEACON_MARKER_CHAR]
+    elif entity.isEnemy:
         # Name-derived letter reads better than a generic '*' at scale;
         # uppercase for HealthBarBoss bosses (roguelike convention).
         color = nearestCursesColor(r, g, b)
@@ -220,6 +261,7 @@ def deriveRenderInfo(
         isLootBag=entity.isLootBag,
         isPortal=entity.isPortal,
         isInteractiveNpc=entity.isInteractiveNpc,
+        isBeaconMarker=entity.isBeaconMarker,
         weaponLabel=entity.weaponLabel,
         bagColorTier=deriveBagColorTier(entity.tier),
         tier=entity.tier,

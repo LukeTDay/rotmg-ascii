@@ -101,6 +101,20 @@ class ParsedEntity:
     isPortal: bool = False
     isInteractiveNpc: bool = False
     isBoss: bool = False
+    # <Beacon/> marker - a real player-teleportable beacon (Class=Beacon,
+    # invisible texture by design - see _parseEntities' textureRefs carve-out
+    # for these). Distinct from the "Active/Captured Beacon *" territory-event
+    # objects, which have no <Beacon/> tag.
+    isBeacon: bool = False
+    # The visible marker objects standing at a beacon location ("Active
+    # Beacon *", "Actual Active Beacon *", some "Captured Beacon *") - unlike
+    # the invisible isBeacon teleport target, these have a real texture but
+    # (inconsistently across variants) none of blocksMovement/isEnemy/
+    # isPortal/isInteractiveNpc, so without this flag TileManager.classifyObject
+    # would silently exclude them from rendering entirely. Detected by name
+    # rather than a structural tag since none is common to every variant;
+    # mutually exclusive with isBeacon (that one's tag-detected first).
+    isBeaconMarker: bool = False
     # Equipment-item fields for the new item-info-peek/inventory UI (a
     # separate, parallel effort - this module only captures the raw data,
     # doesn't render anything with it). Only ever set for `Object` elements;
@@ -296,7 +310,11 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
         displayIdElem = elem.find("DisplayId")
         name = displayIdElem.text if displayIdElem is not None and displayIdElem.text else idAttr
         textureRefs = _parseTextureRefs(elem)
-        if not textureRefs:
+        # Real teleportable beacons are invisible by design (see ParsedEntity.isBeacon) -
+        # their objectType still needs to exist in renderMap.json for the isBeacon
+        # flag, even with nothing to actually render.
+        isBeaconTag = tag == "Object" and elem.find("Beacon") is not None
+        if not textureRefs and not isBeaconTag:
             continue  # nothing to render this entity with
         if tag == "Object":
             fallbackRateOfFire = _parseNumber(elem.findtext("RateOfFire"))
@@ -319,6 +337,8 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             isPortal = classText == "Portal"
             isInteractiveNpc = classText in _INTERACTIVE_NPC_CLASSES
             isBoss = elem.find("HealthBarBoss") is not None
+            isBeacon = isBeaconTag
+            isBeaconMarker = not isBeaconTag and "beacon" in name.lower()
 
             # Equipment-item fields (see ParsedEntity's doc comment above) -
             # all optional/soft-defaulted, since plenty of non-equipment
@@ -351,7 +371,7 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
         else:
             projectiles = []
             subattacks = []
-            blocksMovement = isEnemy = isLootBag = isPortal = isInteractiveNpc = isBoss = False
+            blocksMovement = isEnemy = isLootBag = isPortal = isInteractiveNpc = isBoss = isBeacon = isBeaconMarker = False
             weaponLabel = ""
             tier = None
             mpCost = None
@@ -371,6 +391,8 @@ def _parseEntities(xmlText: str, tag: str) -> dict[int, ParsedEntity]:
             isPortal=isPortal,
             isInteractiveNpc=isInteractiveNpc,
             isBoss=isBoss,
+            isBeacon=isBeacon,
+            isBeaconMarker=isBeaconMarker,
             weaponLabel=weaponLabel,
             tier=tier,
             mpCost=mpCost,

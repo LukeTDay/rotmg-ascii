@@ -14,7 +14,7 @@ from Networking.Ticker import computeSpeed
 
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
-from Renders.GameScreen import bottomPanel, chatPanel, inventoryPanel, itemInfoPeek, uiPanel
+from Renders.GameScreen import bottomPanel, chatPanel, inventoryPanel, itemInfoPeek, miniMap, uiPanel
 from Renders.GameScreen.hitDetection import HitTracker, checkProjectileHits
 from Renders.GameScreen.inputRouter import NEXUS_MODE_DIRECT_CONNECT, getNexusMode, isNexusKey
 from Renders.GameScreen.mapRenderer import drawFrame
@@ -218,7 +218,14 @@ def _handshake(stdscr: curses.window, pad: curses.window, ctx: Context) -> Scree
                 if packetType == "MAPINFO":
                     mapName = event.name
                     ctx["CURR_MAP_NAME"] = mapName
-                    debugger.info(f"MAPINFO received: {mapName}")
+                    ctx["CURR_MAP_WIDTH"] = event.width
+                    ctx["CURR_MAP_HEIGHT"] = event.height
+                    ctx["CURR_MAP_ALLOWS_TELEPORT"] = event.allowPlayerTeleport
+                    ctx["MINIMAP_TP_OVERRIDE"] = None
+                    miniMap.resetCache(ctx)
+                    debugger.info(f"MAPINFO received: {mapName} "
+                                  f"(width={event.width} height={event.height} "
+                                  f"allowPlayerTeleport={event.allowPlayerTeleport})")
                     if mapName.strip().lower() == _TUTORIAL_END_MAP:
                         charData = ctx.get("CHARDATA")
                         if charData is not None and not charData.tutorialDone:
@@ -394,6 +401,19 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
     while True:
         frameStart = time.time()
         _syncPadSize(stdscr, pad)
+
+        # Computed up front (not just before drawing, as before) so the
+        # UPDATE branch below can feed newly-arrived tiles straight into
+        # miniMap's incremental cache at the same layout this frame will
+        # draw with - see miniMap.applyTileUpdates.
+        maxY, maxX = stdscr.getmaxyx()
+        panelLayout = uiPanel.computePanelLayout(maxY, maxX)
+        chatLayout = chatPanel.computeChatLayout(maxY, maxX)
+        minimapLayout = miniMap.computeMinimapLayout(
+            chatLayout.topSection.startRow, chatLayout.topSection.height, chatLayout.panelWidth,
+            ctx.get("CURR_MAP_WIDTH", 1), ctx.get("CURR_MAP_HEIGHT", 1),
+        )
+
         queueDrainStart = frameStart
         try:
             while True:
@@ -405,6 +425,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                     return _RECONNECT
                 elif event.type == "UPDATE":
                     state.applyUpdate(event)
+                    miniMap.applyTileUpdates(ctx, minimapLayout, event.tiles)
                     for obj in event.newObjs:
                         if obj.status.objectId == listener.objectId:
                             player.parse(obj)
@@ -468,10 +489,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         # + bottom-panel widget are drawn on top of the same pad drawFrame
         # just drew the map onto - this app composites everything onto one
         # pad per frame, then blits it once (determineRefreshWindow below),
-        # not once per drawing step.
-        maxY, maxX = stdscr.getmaxyx()
-        panelLayout = uiPanel.computePanelLayout(maxY, maxX)
-        chatLayout = chatPanel.computeChatLayout(maxY, maxX)
+        # not once per drawing step. panelLayout/chatLayout/minimapLayout were
+        # already computed up front this frame (see above the queue drain).
         friendsList = ctx.get("FRIENDSLIST", set())
         guildMembers = ctx.get("GUILDMEMBERS", set())
         lockedAccounts = ctx.get("LOCKEDACCOUNTS", set())
@@ -483,7 +502,7 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         itemInfoPeek.drawItemInfoPeek(pad, panelLayout, peekedObjectType, projectileMap, state, peekedObjectId)
         bottomPanel.drawBottomPanel(pad, panelLayout, ctx, state, ticker, listener.objectId, friendsList,
                                      guildMembers, lockedAccounts)
-        chatPanel.drawChatPanel(pad, chatLayout, ctx)
+        chatPanel.drawChatPanel(pad, chatLayout, ctx, state, ticker, listener.objectId, minimapLayout)
         determineRefreshWindow(stdscr, pad, 0)
         drawFrameMs = (time.time() - drawFrameStart) * 1000
 
@@ -497,6 +516,11 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         chatInputMs = (time.time() - chatInputStart) * 1000
 
         keybinds = ctx.get("KEYBINDS", {})
+
+        if not isTyping and miniMap.clearOverrideOnEscape(ctx, keys):
+            # ESC backs out of the minimap's teleport-target list before
+            # anything else (nexus key, pause menu) reacts to it this frame.
+            continue
 
         if not isTyping and isNexusKey(keys, keybinds):
             # Checked first, ahead of the pause menu, so a panic-nexus in
@@ -537,6 +561,12 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
         panelInputStart = time.time()
         handlePanelInput(mouseEvent, stdscr, ctx, panelLayout, player, state, ticker, listener, outgoingQueue,
                           projectileMap, friendsList, guildMembers, lockedAccounts)
+        # panelInput's own map-click branch no-ops for any click inside the
+        # chat panel's columns (screenToWorld returns None there), so this
+        # can run unconditionally alongside it against the same mouseEvent -
+        # no risk of double-handling a click.
+        miniMap.handleMinimapInput(ctx, state, listener.objectId, outgoingQueue, minimapLayout,
+                                    chatLayout.bottomSection.startRow, chatLayout.bottomSection.height, mouseEvent)
         panelInputMs = (time.time() - panelInputStart) * 1000
 
         # Run after this frame's packets are already sent/drawn, so the

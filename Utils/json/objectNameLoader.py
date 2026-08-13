@@ -15,6 +15,8 @@ class ObjectRenderInfo:
     isLootBag: bool = False
     isPortal: bool = False
     isInteractiveNpc: bool = False
+    isBeacon: bool = False
+    isBeaconMarker: bool = False
     # Equipment-item fields for the item-info-peek/inventory UI - absent
     # (falls back to these defaults) on every non-equipment object, since
     # renderMap.json only carries them for `<Object>` elements that had the
@@ -74,6 +76,8 @@ def _loadObjectInfo() -> Dict[int, ObjectRenderInfo]:
                 isLootBag=entry.get("isLootBag", False),
                 isPortal=entry.get("isPortal", False),
                 isInteractiveNpc=entry.get("isInteractiveNpc", False),
+                isBeacon=entry.get("isBeacon", False),
+                isBeaconMarker=entry.get("isBeaconMarker", False),
                 weaponLabel=entry.get("weaponLabel", ""),
                 bagColorTier=entry.get("bagColorTier", "WHITE"),
                 tier=entry.get("tier"),

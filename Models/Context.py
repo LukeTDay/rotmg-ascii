@@ -1,4 +1,4 @@
-from typing import Deque, TypedDict, List, Dict, FrozenSet, NamedTuple, Set, Tuple, TypeVar
+from typing import Deque, TypedDict, List, Dict, FrozenSet, NamedTuple, Optional, Set, Tuple, TypeVar
 
 from Models.CharData import CharData
 from Models.CharListData import CharListData
@@ -10,6 +10,8 @@ from Networking.Sender import Sender
 from Networking.PacketLogSettings import PacketLogSettings
 from Debug.Debugger import Debugger
 
+from collections import Counter
+from dataclasses import dataclass, field
 import queue
 import random
 
@@ -40,6 +42,43 @@ class SelectedSlot(NamedTuple):
     slotId: int
     objectType: int
     selectedAt: float
+
+
+class TpCandidate(NamedTuple):
+    """One clickable teleport target inside a minimap bucket - see
+    Renders/GameScreen/miniMap.py's collectTpBuckets."""
+    objectId: int
+    name: str
+    kind: str  # "player" or "beacon"
+
+
+class MinimapTpOverride(NamedTuple):
+    """Set when a minimap '%' bucket is clicked - tells chatPanel.py to render
+    this instead of normal chat in its bottom section. error is set (with
+    candidates left empty) instead of a real list when the current map's
+    MAPINFO.allowPlayerTeleport was False - see Renders/GameScreen/miniMap.py."""
+    bucket: Tuple[int, int]
+    candidates: List[TpCandidate]
+    error: Optional[str]
+
+
+@dataclass
+class MinimapCache:
+    """Renders/GameScreen/miniMap.py's per-map incremental bucket-color cache.
+    Dumped and rebuilt (a fresh MinimapCache()) on every MAPINFO - a new
+    map/session always starts with an empty GameState.tiles anyway. Updated
+    incrementally per-tile as UPDATE packets arrive (miniMap.applyTileUpdates)
+    rather than by re-scanning GameState.tiles, so a revisited/re-sent tile
+    doesn't get double-counted and a genuinely re-typed tile isn't missed."""
+    tileColor: Dict[Tuple[int, int], str] = field(default_factory=dict)
+    bucketCounters: Dict[Tuple[int, int], "Counter[str]"] = field(default_factory=dict)
+    bucketColor: Dict[Tuple[int, int], str] = field(default_factory=dict)
+    # (bucketCols, bucketRows, scaleX, scaleY) the above two dicts were last
+    # bucketed under - a terminal resize changes MinimapLayout's bucketing
+    # mid-session, so miniMap.applyTileUpdates re-buckets from tileColor
+    # (cheap - already-resolved colors, no XML lookups) whenever this drifts
+    # from the current frame's layout, instead of every frame.
+    bucketDims: Tuple[int, int, int, int] = (0, 0, 0, 0)
 
 
 class ChatMessage(NamedTuple):
@@ -106,6 +145,14 @@ class Context(TypedDict, total=False):
     BOTTOM_PANEL_CYCLE_INDEX : int
     BOTTOM_PANEL_CANDIDATE_IDS : FrozenSet[int]
     CURR_MAP_NAME : str
+    CURR_MAP_WIDTH : int
+    CURR_MAP_HEIGHT : int
+    # MAPINFO.allowPlayerTeleport - some maps genuinely disallow player-to-
+    # player teleport; see Renders/GameScreen/miniMap.py's click handling.
+    CURR_MAP_ALLOWS_TELEPORT : bool
+    # Minimap state - see Renders/GameScreen/miniMap.py.
+    MINIMAP_CACHE : MinimapCache
+    MINIMAP_TP_OVERRIDE : Optional[MinimapTpOverride]
     # Popped by _establishConnection to build the follow-up HELLO after a RECONNECT.
     PENDING_RECONNECT_HELLO : PendingReconnectHello
     BACKGROUND_TEXTURE_CACHE : List[Tuple[int, int, str, int]]

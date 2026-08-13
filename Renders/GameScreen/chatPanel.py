@@ -6,8 +6,10 @@ from typing import List, Tuple
 
 import Networking.PacketHelper as PacketHelper
 from Constants import ColorPairs
-from Models.Context import ChatMessage, Context
+from Models.Context import ChatMessage, Context, MinimapTpOverride
+from Models.GameState import GameState
 from Networking.Ticker import Ticker
+from Renders.GameScreen import miniMap
 from Renders.GameScreen.inputRouter import isChatOpenKey
 
 # Fraction of the terminal's full width given to the left-side chat panel -
@@ -16,9 +18,10 @@ from Renders.GameScreen.inputRouter import isChatOpenKey
 # constant rather than duplicating it).
 CHAT_PANEL_WIDTH_FRACTION = 0.33
 
-# Vertical split of the panel's 2 stacked halves - top is an empty
-# placeholder reserved for a future feature (system-message display etc,
-# per user request - not wired up yet), bottom is the chat itself.
+# Vertical split of the panel's 2 stacked halves - top is the minimap (see
+# Renders/GameScreen/miniMap.py), bottom is the chat itself (or, while a
+# minimap '%' cell's teleport-target list is up, that list instead - see
+# drawTpOverrideList).
 TOP_SECTION_FRACTION = 0.5
 
 SECTION_DIVIDER_CHAR = "-"
@@ -32,8 +35,8 @@ _KIND_TO_COLOR_NAME = {
     "guild": "GREEN", "locked": "MAGENTA",
 }
 
-_TOP_PLACEHOLDER_TEXT = "(reserved)"
 _IDLE_INPUT_TEXT = "Press / to chat"
+_TP_LIST_HEADER = "Teleport to: (ESC to cancel)"
 
 
 @dataclass(frozen=True)
@@ -112,11 +115,38 @@ def drawChatFrame(pad: curses.window, layout: ChatLayout) -> None:
         _write(pad, inputRow - 1, 0, SECTION_DIVIDER_CHAR * layout.panelWidth, attr)
 
 
-def _drawTopPlaceholder(pad: curses.window, layout: ChatLayout) -> None:
-    top = layout.topSection
-    row = top.startRow + top.height // 2
-    col = max(0, (layout.panelWidth - len(_TOP_PLACEHOLDER_TEXT)) // 2)
-    _write(pad, row, col, _TOP_PLACEHOLDER_TEXT[:layout.panelWidth], curses.color_pair(ColorPairs.DEFAULT))
+def _writeCentered(pad: curses.window, row: int, panelWidth: int, text: str, attr: int) -> None:
+    col = max(0, (panelWidth - len(text)) // 2)
+    _write(pad, row, col, text[:panelWidth], attr)
+
+
+def drawTpOverrideList(pad: curses.window, layout: ChatLayout, override: MinimapTpOverride) -> None:
+    """Replaces the bottom (chat) section with either an error (this map's
+    MAPINFO.allowPlayerTeleport was False) or a clickable list of the
+    minimap bucket's teleport targets - see miniMap.handleMinimapInput for
+    the click side, which uses the exact same row math (overrideBlockStartRow/
+    overrideCandidateRow) so draw and click-hit-testing never disagree.
+
+    The header+list block is vertically centered as a whole within the
+    bottom section: 1 candidate sits close to center along with the header;
+    more candidates push the header upward to keep the block centered as it
+    grows, rather than everything staying pinned to the top."""
+    bottom = layout.bottomSection
+    attr = curses.color_pair(ColorPairs.DEFAULT)
+
+    if override.error is not None:
+        row = bottom.startRow + bottom.height // 2
+        _writeCentered(pad, row, layout.panelWidth, override.error, curses.color_pair(ColorPairs.FILL_RED))
+        return
+
+    blockStart = miniMap.overrideBlockStartRow(bottom.startRow, bottom.height, len(override.candidates))
+    _writeCentered(pad, blockStart, layout.panelWidth, _TP_LIST_HEADER, attr)
+    for i, candidate in enumerate(override.candidates):
+        row = miniMap.overrideCandidateRow(blockStart, i)
+        if row >= bottom.startRow + bottom.height:
+            break
+        label = f"{candidate.name} ({candidate.kind})"
+        _writeCentered(pad, row, layout.panelWidth, label, attr)
 
 
 def _wrapMessages(ctx: Context, width: int) -> List[Tuple[str, int]]:
@@ -166,11 +196,17 @@ def _drawInputBar(pad: curses.window, layout: ChatLayout, ctx: Context) -> None:
     _write(pad, inputRow, 0, padded, curses.color_pair(fillPair))
 
 
-def drawChatPanel(pad: curses.window, layout: ChatLayout, ctx: Context) -> None:
+def drawChatPanel(pad: curses.window, layout: ChatLayout, ctx: Context, state: GameState,
+                   ticker: Ticker, listenerObjectId: int, minimapLayout: "miniMap.MinimapLayout") -> None:
     drawChatFrame(pad, layout)
-    _drawTopPlaceholder(pad, layout)
-    _drawMessages(pad, layout, ctx)
-    _drawInputBar(pad, layout, ctx)
+    miniMap.drawMiniMap(pad, ctx, state, ticker, listenerObjectId, minimapLayout)
+
+    override = ctx.get("MINIMAP_TP_OVERRIDE")
+    if override is not None:
+        drawTpOverrideList(pad, layout, override)
+    else:
+        _drawMessages(pad, layout, ctx)
+        _drawInputBar(pad, layout, ctx)
 
 
 def recordIncomingText(ctx: Context, event, selfObjectId: int) -> None:

@@ -127,6 +127,14 @@ def classifyObject(obj: GameObject, listenerObjectId: int, info: Optional[Object
         return Tier.PORTAL
     if info is not None and info.isInteractiveNpc:
         return Tier.INTERACTIVE_NPC
+    if info is not None and info.isBeaconMarker:
+        # Visible beacon markers (Active/Actual Active/some Captured Beacon
+        # objects) carry none of the flags above by default - without this
+        # they'd match nothing and get silently excluded (see
+        # ParsedEntity.isBeaconMarker). Reuses the INTERACTIVE_NPC tier slot;
+        # deriveRenderInfo already fixes their glyph to '%' regardless of
+        # which tier ends up winning (e.g. the few that are also isEnemy).
+        return Tier.INTERACTIVE_NPC
     if ClassIds.idToClass(obj.objectType) is not None:
         if playerVisibility == PLAYER_VISIBILITY_SELF:
             return None

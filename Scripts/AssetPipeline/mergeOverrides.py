@@ -50,6 +50,8 @@ def mergeOverrides(derived: dict[str, dict[int, RenderInfo]], overrides: dict) -
                 "isLootBag": info.isLootBag,
                 "isPortal": info.isPortal,
                 "isInteractiveNpc": info.isInteractiveNpc,
+                "isBeacon": info.isBeacon,
+                "isBeaconMarker": info.isBeaconMarker,
                 "weaponLabel": info.weaponLabel,
                 "bagColorTier": info.bagColorTier,
                 "tier": info.tier,
