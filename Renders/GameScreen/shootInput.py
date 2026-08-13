@@ -13,7 +13,7 @@ from Models.ProjectileStore import ProjectileStore
 from Networking.Ticker import Ticker
 from Renders.GameScreen.inputRouter import isAutoFireToggle
 from Renders.GameScreen.mapRenderer import screenToWorld
-from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks, wavyParams
+from Utils.json.projectileMapLoader import SubattackDef, getProjectileDefinition, getSubattacks, motionParams
 
 # RotMG's DEX-based attack-frequency formula (attacks/ms), confirmed against
 # RealmEye's docs. DAZED clamps to _MIN before RateOfFire; BERSERK is a 1.5x
@@ -181,12 +181,13 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
             outgoingQueue.put(packet)
 
             if shotDefinition is not None:
-                amplitude, frequency = wavyParams(shotDefinition)
+                wavy, boomerang, parametric, magnitude, amplitude, frequency = motionParams(shotDefinition)
                 projectiles.spawn(
                     bulletId=shootState.nextShotId,
                     ownerId=player.objectId,
                     startingPos=shotPos,
                     angle=angle,
+                    shotIndex=i,
                     speed=shotDefinition.speed,
                     damage=shotDefinition.damage,
                     lifetimeMS=shotDefinition.lifetimeMS,
@@ -198,6 +199,10 @@ def handleShootInput(keys: List[int], stdscr: curses.window, ticker: Ticker, pla
                     maxDamage=shotDefinition.maxDamage,
                     amplitude=amplitude,
                     frequency=frequency,
+                    wavy=wavy,
+                    boomerang=boomerang,
+                    parametric=parametric,
+                    magnitude=magnitude,
                 )
 
             shootState.nextShotId = (shootState.nextShotId + 1) % 128

@@ -23,7 +23,7 @@ from Renders.GameScreen.panelInput import handlePanelInput
 from Renders.GameScreen.shootInput import AutoFireState, handleShootInput
 from Renders.PauseMenu.pauseMenu import drawPauseMenu
 
-from Utils.json.projectileMapLoader import getProjectileDefinition, projectileMapLoader, resolveShotProjectileIds, wavyParams
+from Utils.json.projectileMapLoader import getProjectileDefinition, motionParams, projectileMapLoader, resolveShotProjectileIds
 from Utils.XML.parseCharList import parseNewCharacterXml
 
 import curses, gc, threading, queue, time
@@ -292,7 +292,7 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
         definition = getProjectileDefinition(projectileMap, ownerObjectType, projectileId)
         if definition is None:
             continue
-        amplitude, frequency = wavyParams(definition)
+        wavy, boomerang, parametric, magnitude, amplitude, frequency = motionParams(definition)
         store.spawn(
             bulletId=bulletId,
             ownerId=ownerId,
@@ -308,6 +308,10 @@ def _spawnProjectiles(store: ProjectileStore, projectileMap, ownerObjectType: in
             armorPiercing=definition.armorPiercing,
             amplitude=amplitude,
             frequency=frequency,
+            wavy=wavy,
+            boomerang=boomerang,
+            parametric=parametric,
+            magnitude=magnitude,
             fromEnemy=fromEnemy,
             # No minDamage/maxDamage here - `damage` above is already the
             # server's own authoritative value for this echoed shot (from

@@ -11,7 +11,9 @@ class Projectile:
                  speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None,
                  visualObjectType: Optional[int] = None, multiHit: bool = False, armorPiercing: bool = False,
                  minDamage: Optional[int] = None, maxDamage: Optional[int] = None,
-                 amplitude: float = 0.0, frequency: float = 0.0, fromEnemy: bool = False):
+                 amplitude: float = 0.0, frequency: float = 0.0, fromEnemy: bool = False,
+                 wavy: bool = False, boomerang: bool = False, parametric: bool = False,
+                 magnitude: float = 0.0):
         self.bulletId = bulletId
         self.ownerId = ownerId
         self.shotIndex = shotIndex
@@ -39,15 +41,22 @@ class Projectile:
         # Bypasses the target's defense entirely for kill-guess purposes -
         # see Renders/GameScreen/hitDetection.py's damage-after-defense estimate.
         self.armorPiercing = armorPiercing
-        # UNVERIFIED best-effort formula - no confirmed source in this repo or
-        # either reference bot project (neither implements wavy motion at
-        # all; this was straight-line-only before). Amplitude/Frequency come
-        # from the <Projectile>'s raw extras (e.g. Makakoyumi's lightning:
-        # Amplitude=0.7, Frequency=0.75) - applied in posAt() as a sine
-        # offset perpendicular to the straight-line path, phased by distance
-        # traveled (not elapsed time, so the wavelength doesn't change with
-        # projectile speed). 0/0 (the default) reduces to plain straight-line
-        # motion, unchanged for every non-wavy projectile.
+        # Motion-type fields, all confirmed against real extracted game XML
+        # (Resources/_generated/xml - <Wavy/>, <Boomerang/>, <Parametric/>,
+        # <Magnitude>, <Amplitude>, <Frequency> all genuinely appear, not
+        # guesses) and cross-checked formula-for-formula against 2-3
+        # independent reference implementations (Club559/ROTMGServer,
+        # alloy-server, realm-engine-client's ProjectileSimulator.ts - see
+        # CLAUDE.local.md's "Reference projects" section). wavy/boomerang/
+        # parametric are mutually exclusive branches in posAt(); amplitude/
+        # frequency only apply in the plain/boomerang branch (real
+        # <Amplitude>/<Frequency> can coexist with <Boomerang/>, confirmed
+        # in all 3 sources). All default to inert values so a projectile
+        # with none of these extras reduces to plain straight-line motion.
+        self.wavy = wavy
+        self.boomerang = boomerang
+        self.parametric = parametric
+        self.magnitude = magnitude
         self.amplitude = amplitude
         self.frequency = frequency
         self.hitTargetIds: Set[int] = set()
@@ -67,13 +76,58 @@ class Projectile:
 
     def posAt(self, now: Optional[float] = None) -> WorldPosData:
         now = time.time() if now is None else now
-        dist = self.speed * (now - self.spawnTime)
+        elapsedSec = now - self.spawnTime
+        elapsedMs = elapsedSec * 1000.0
+        lifetimeFrac = (elapsedMs / self.lifetimeMS) if self.lifetimeMS else 0.0
+        # Adjacent shots in a fan (even/odd shotIndex) get opposite phase so
+        # a multi-shot volley weaves rather than moving in lockstep -
+        # confirmed identically in all 3 reference sources for both Wavy
+        # and the Amplitude/Frequency offset below.
+        period = 0.0 if self.shotIndex % 2 == 0 else math.pi
+
+        if self.wavy:
+            # Angle itself oscillates (not a lateral offset) - amplitude
+            # PI/64 rad and period 6*PI rad/s confirmed by both alloy-server
+            # (WavyPath.cs) and realm-engine-client's ProjectileSimulator.ts;
+            # Club559's Math.PI*64 is very likely a transcription bug (see
+            # CLAUDE.local.md).
+            theta = self.angle + (math.pi / 64) * math.sin(period + 6 * math.pi * elapsedSec)
+            dist = self.speed * elapsedSec
+            return WorldPosData(
+                self.startingPos.x + math.cos(theta) * dist,
+                self.startingPos.y + math.sin(theta) * dist,
+            )
+
+        if self.parametric:
+            # Ignores speed/dist entirely - a Lissajous curve scaled by
+            # Magnitude, traced once over the shot's full lifetime. a/b sign
+            # flips by shotIndex parity so a multi-shot volley fans out into
+            # distinct curve variants instead of overlapping.
+            theta = lifetimeFrac * 2 * math.pi
+            a = math.sin(theta) * (1.0 if self.shotIndex % 2 != 0 else -1.0)
+            b = math.sin(2 * theta) * (1.0 if self.shotIndex % 4 < 2 else -1.0)
+            cosA, sinA = math.cos(self.angle), math.sin(self.angle)
+            return WorldPosData(
+                self.startingPos.x + (a * cosA - b * sinA) * self.magnitude,
+                self.startingPos.y + (a * sinA + b * cosA) * self.magnitude,
+            )
+
+        dist = self.speed * elapsedSec
+        if self.boomerang:
+            # Reflects at the lifetime's temporal midpoint - travels out,
+            # then back along the same line.
+            halfDist = self.speed * (self.lifetimeMS / 1000.0) / 2
+            if dist > halfDist:
+                dist = 2 * halfDist - dist
         x = self.startingPos.x + math.cos(self.angle) * dist
         y = self.startingPos.y + math.sin(self.angle) * dist
-        if self.amplitude and self.frequency:
-            offset = self.amplitude * math.sin(self.frequency * dist)
-            # Perpendicular to the flight direction (angle + 90deg), not
-            # world-axis-aligned, so the wave rides along the shot's path.
+        if self.amplitude:
+            # Perpendicular sine offset, phased by elapsed-lifetime fraction
+            # (a fixed number of Frequency cycles over the whole flight) -
+            # NOT by distance traveled like this used to compute it, which
+            # made the wavelength scale with speed instead of staying fixed
+            # per shot.
+            offset = self.amplitude * math.sin(period + lifetimeFrac * self.frequency * 2 * math.pi)
             x -= math.sin(self.angle) * offset
             y += math.cos(self.angle) * offset
         return WorldPosData(x, y)
@@ -100,11 +154,14 @@ class ProjectileStore:
               speed: float, damage: int, lifetimeMS: int, size: Optional[int] = None, shotIndex: int = 0,
               visualObjectType: Optional[int] = None, multiHit: bool = False, armorPiercing: bool = False,
               minDamage: Optional[int] = None, maxDamage: Optional[int] = None,
-              amplitude: float = 0.0, frequency: float = 0.0, fromEnemy: bool = False) -> None:
+              amplitude: float = 0.0, frequency: float = 0.0, fromEnemy: bool = False,
+              wavy: bool = False, boomerang: bool = False, parametric: bool = False,
+              magnitude: float = 0.0) -> None:
         key = (ownerId, bulletId, shotIndex)
         self.projectiles[key] = Projectile(
             bulletId, ownerId, shotIndex, startingPos, angle, speed, damage, lifetimeMS, size, visualObjectType,
             multiHit, armorPiercing, minDamage, maxDamage, amplitude, frequency, fromEnemy,
+            wavy, boomerang, parametric, magnitude,
         )
 
     def remove(self, ownerId: int, bulletId: int, shotIndex: int = 0) -> None:

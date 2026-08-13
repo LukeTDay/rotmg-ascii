@@ -110,11 +110,29 @@ def getSubattacks(projectileMap: Dict[int, OwnerEntry], ownerObjectType: int) ->
     return entry.subattacks if entry is not None else []
 
 
-def wavyParams(definition: ProjectileDefinition) -> "tuple[float, float]":
-    """(amplitude, frequency) for wavy projectile motion - see
-    Models/ProjectileStore.Projectile.posAt(). Both 0.0 (no offset, plain
-    straight-line motion) for the vast majority of projectiles that don't
-    carry these extras at all."""
+def motionParams(definition: ProjectileDefinition) -> "tuple[bool, bool, bool, float, float, float]":
+    """(wavy, boomerang, parametric, magnitude, amplitude, frequency) - the
+    real <Projectile> XML flags/values controlling which motion branch
+    Models/ProjectileStore.Projectile.posAt() takes. Confirmed present in
+    the actual extracted game XML (Resources/_generated/xml, e.g. <Wavy/>,
+    <Boomerang/>, <Parametric/><Magnitude>0.25</Magnitude>,
+    <Amplitude>2.1</Amplitude><Frequency>3.4</Frequency>) - not guesses.
+
+    wavy/boomerang/parametric are self-closing presence flags (<Wavy/> has
+    no text) - Scripts/AssetPipeline/parseGameXml.py stores "" for these in
+    extras, so dict *membership* is the boolean, not truthiness of the
+    value. magnitude only matters when parametric; amplitude/frequency only
+    matter otherwise - posAt() branches on wavy/parametric/boomerang as
+    mutually exclusive, matching every reference source cross-checked (see
+    CLAUDE.local.md's "Reference projects" section).
+    """
+    wavy = "Wavy" in definition.extras
+    boomerang = "Boomerang" in definition.extras
+    parametric = "Parametric" in definition.extras
+    try:
+        magnitude = float(definition.extras.get("Magnitude", 3.0))
+    except (TypeError, ValueError):
+        magnitude = 3.0
     try:
         amplitude = float(definition.extras.get("Amplitude", 0.0))
     except (TypeError, ValueError):
@@ -123,7 +141,7 @@ def wavyParams(definition: ProjectileDefinition) -> "tuple[float, float]":
         frequency = float(definition.extras.get("Frequency", 0.0))
     except (TypeError, ValueError):
         frequency = 0.0
-    return amplitude, frequency
+    return wavy, boomerang, parametric, magnitude, amplitude, frequency
 
 
 def resolveShotProjectileIds(
