@@ -25,28 +25,10 @@ _BASE_ENEMY_RADIUS_TILES = 0.5
 # case changes size (0.5 -> 0.45).
 _SEND_THRESHOLD_MARGIN_TILES = -0.05
 
-# UNVERIFIED best-effort estimate - no confirmed source for RotMG's real
-# damage-vs-defense formula exists in this repo or in either reference bot
-# project (rotmg_mitm_py/pyrelay/realmlib only document the DEFENSESTAT
-# field, never a formula). Commonly cited community constant: armor-piercing
-# hits ignore defense entirely; non-piercing hits are reduced by defense but
-# never below this floor fraction of the raw roll. Used only for `kill` -
-# an optional hint the server can freely ignore/override, not something the
-# server trusts for the actual damage applied (ENEMYHIT carries no damage
-# field at all - the server rolls/applies that itself). Recalibrate if kill
-# claims look consistently early/late once tested live.
-_DEFENSE_FLOOR_FRACTION = 0.30
-
 # Off while full packet logging (Networking/Listener.py, Networking/Sender.py)
 # covers the same ground more generally - flip back on to get this module's
 # own higher-level ENEMYHIT/DAMAGE-match narration instead of raw packets.
 _VERBOSE_HIT_LOGGING = False
-
-
-def _estimateDamageDealt(rawDamage: int, defense: int, armorPiercing: bool) -> int:
-    if armorPiercing:
-        return rawDamage
-    return max(rawDamage - defense, int(rawDamage * _DEFENSE_FLOOR_FRACTION))
 
 
 @dataclass
@@ -238,21 +220,13 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
                 continue
 
             liveHp = obj.stats.get(StatTypes.HPSTAT)
-            kill = False
-            if liveHp is not None:
-                liveDefense = obj.stats.get(StatTypes.DEFENSESTAT)
-                defense = liveDefense.statValue if liveDefense is not None else 0
-                dealt = _estimateDamageDealt(proj.damage, defense, proj.armorPiercing)
-                kill = liveHp.statValue - dealt <= 0
-            # else: enemy's current HP isn't tracked (no UPDATE/NEWTICK for
-            # it yet) - can't guess, stays False. Server decides regardless.
 
             packet = PacketHelper.createPacket("ENEMYHIT")
             packet.time = nowMs
             packet.bulletId = proj.bulletId
             packet.id1 = ownerId
             packet.targetId = obj.objectId
-            packet.kill = kill
+            packet.kill = False  # never claim a kill - let the server decide
             packet.id2 = ownerId
             outgoingQueue.put(packet)
             if liveHp is not None:
@@ -261,7 +235,7 @@ def checkProjectileHits(projectiles: ProjectileStore, state: GameState, ownerId:
             if _VERBOSE_HIT_LOGGING:
                 debugger.debug(
                     f"ENEMYHIT sent: {info.name} (type={obj.objectType}) bulletId={proj.bulletId} "
-                    f"distance={dist:.3f} estimatedRadius={radius:.3f} kill={kill}"
+                    f"distance={dist:.3f} estimatedRadius={radius:.3f}"
                 )
 
             proj.hitTargetIds.add(obj.objectId)
