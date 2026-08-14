@@ -290,3 +290,64 @@ def checkPlayerHits(projectiles: ProjectileStore, ownerId: int, playerPos,
 
         if not proj.multiHit:
             projectiles.remove(proj.ownerId, proj.bulletId, proj.shotIndex)
+
+
+# Same fixed 0.5-tile hitbox as _PLAYER_RADIUS_TILES above - real RotMG uses
+# one constant player collision radius regardless of class/size.
+_AOE_PLAYER_RADIUS_TILES = 0.5
+
+
+def checkAoeHits(aoeStore, player, playerPos, debugger) -> None:
+    """Client-side AOE collision against the local player - unlike
+    checkPlayerHits (which reports a hit and waits for the server's real
+    HPSTAT/CONDITIONSTAT), this applies damage/status LOCALLY and
+    immediately: the server already applies AOE damage on its own timer with
+    no client action required (confirmed via alloy-server's
+    AOEDamager.AOEActivate), so there's no packet to send here - only a local
+    prediction, which the next authoritative HPSTAT/CONDITIONSTAT will
+    silently correct if it's wrong (e.g. non-armor-piercing AOEs, where this
+    client has no defense-mitigation formula to reduce `instance.damage` by).
+
+    Gated by `AoeInstance.applied` so each landed instance is only ever
+    applied once, regardless of how many frames it lingers for.
+    """
+    if playerPos is None:
+        return
+    for instance in aoeStore.instances:
+        if instance.applied:
+            continue
+        instance.applied = True
+
+        dist = math.hypot(instance.pos.x - playerPos.x, instance.pos.y - playerPos.y)
+        if dist > _AOE_PLAYER_RADIUS_TILES:
+            continue
+
+        if player.maxHp:
+            player.hp = max(0, min(player.maxHp, player.hp - instance.damage))
+        else:
+            player.hp = max(0, player.hp - instance.damage)
+
+        # Only effects 1-31 fit this app's single-word `player.condition`
+        # bitmask (CONDITIONSTAT) - effects 32-59 need a second word
+        # (condition2/NEWCONSTAT) this app doesn't parse at all today, a
+        # pre-existing gap unrelated to AOE. Silently no-op rather than
+        # mis-encoding a bit into the wrong word.
+        if 1 <= instance.effect <= 31:
+            base = player.condition if isinstance(player.condition, int) else 0
+            player.condition = base | (1 << (instance.effect - 1))
+            player.conditionExpiry[instance.effect] = time.time() + instance.duration
+
+        debugger.debug(f"AOE hit applied: damage={instance.damage} effect={instance.effect} dist={dist:.3f}")
+
+
+def pruneExpiredConditions(player) -> None:
+    """Clears any condition bit this client applied locally (see
+    checkAoeHits) once its recorded duration has elapsed. The only local
+    condition-expiry mechanism in this app - CONDITIONSTAT is otherwise
+    always a wholesale server-sent replacement, never locally timed."""
+    now = time.time()
+    expired = [effect for effect, expiry in player.conditionExpiry.items() if now >= expiry]
+    for effect in expired:
+        base = player.condition if isinstance(player.condition, int) else 0
+        player.condition = base & ~(1 << (effect - 1))
+        del player.conditionExpiry[effect]

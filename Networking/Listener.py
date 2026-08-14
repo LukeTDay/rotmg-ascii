@@ -9,6 +9,7 @@ import Networking.PacketHelper as PacketHelper
 import Crypto.RC4 as RC4
 import Crypto.rotmg_keys as rotmg_keys
 from Data.MoveRecord import MoveRecord
+from Data.WorldPosData import WorldPosData
 from Networking.PacketLogSettings import PacketLogSettings
 from Networking.Ticker import Ticker
 
@@ -127,6 +128,11 @@ class Listener:
             ack = PacketHelper.createPacket("ENEMYSHOOTACK")
             ack.time = self._getTime()
             ack.count = min(1, packet.numShots)
+            self.outgoingQueue.put(ack)
+        elif packetType == "AOE":
+            ack = PacketHelper.createPacket("AOEACK")
+            ack.time = self._getTime()
+            ack.pos = self.ticker.pos.clone() if self.ticker.pos is not None else WorldPosData()
             self.outgoingQueue.put(ack)
         elif packetType == "NEWTICK":
             move = PacketHelper.createPacket("MOVE")

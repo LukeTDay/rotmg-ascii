@@ -2,9 +2,11 @@ from Constants.Screen import Screen
 from Constants.StatTypes import StatTypes
 import Constants.GameIds as GameIds
 
+from Models.AoeStore import AoeStore
 from Models.Context import Context, PendingReconnectHello, required
 
 from Models.GameState import GameState
+from Models.MeteorWarningStore import MeteorWarningStore
 from Models.PlayerData import PlayerData
 from Models.ProjectileStore import ProjectileStore
 
@@ -15,7 +17,9 @@ from Networking.Ticker import computeSpeed
 from Renders.EnterAccountInfo.enterAccountInfo import determineRefreshWindow, drawCenteredBanner, drawCenteredText
 from Renders.backgroundTexture import drawBackgroundTexture
 from Renders.GameScreen import bottomPanel, chatPanel, enemyHealthBar, inventoryPanel, itemInfoPeek, miniMap, uiPanel
-from Renders.GameScreen.hitDetection import EnemyTargetTracker, HitTracker, checkPlayerHits, checkProjectileHits
+from Renders.GameScreen.hitDetection import (
+    EnemyTargetTracker, HitTracker, checkAoeHits, checkPlayerHits, checkProjectileHits, pruneExpiredConditions,
+)
 from Renders.GameScreen.inputRouter import NEXUS_MODE_DIRECT_CONNECT, getNexusMode, isNexusKey
 from Renders.GameScreen.mapRenderer import drawFrame
 from Renders.GameScreen.movementInput import drainKeys, getFrameMouseEvent, handleMovementInput
@@ -392,6 +396,8 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
     state = GameState()
     player = PlayerData()
     projectiles = ProjectileStore()
+    aoeStore = AoeStore()
+    meteorWarnings = MeteorWarningStore()
     projectileMap = projectileMapLoader()
     shootState = AutoFireState()
     hitTracker = HitTracker()
@@ -463,6 +469,73 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
                             event.angle, event.angleInc, numShots, event.damage,
                             fromEnemy=True,
                         )
+                elif event.type == "SHOWEFFECT":
+                    # AOE's only interest in SHOWEFFECT (a general-purpose
+                    # packet used for many effects beyond AOE) is reading
+                    # THROW (4) or THROW_PROJECTILE (16) - CONFIRMED (live
+                    # capture, 2026-08-14) both precede a real AOE landing,
+                    # e.g. Tundra Yeti's Yeti Bomb telegraph is a
+                    # THROW_PROJECTILE, not a THROW - to conditionally render
+                    # an already-known telegraph. See
+                    # AoeStore.spawnTelegraphIfKnown, which is strictly
+                    # read-only against the confirmed tables (all writes
+                    # happen only in AoeStore.land(), triggered by real AOE
+                    # packets). targetObjectId (present iff ignore&64)
+                    # resolved to the throwing enemy's objectType - UNVERIFIED
+                    # hypothesis (see Models/AoeStore.py).
+                    # NOT EXHAUSTIVE - only THROW/THROW_PROJECTILE are
+                    # confirmed so far. Other effect types likely also
+                    # precede an AOE for some enemies (e.g. LIGHTNING=11 is
+                    # suspected but untested) and each may need its own
+                    # colorHint handling once confirmed, same as
+                    # THROW_PROJECTILE's needed - see ShowEffectPacket.py's
+                    # effectType table for the full enum to check debug.txt
+                    # against when a new enemy's telegraph doesn't render.
+                    if event.effectType in (4, 16):
+                        if (event.ignore & 2) and (event.ignore & 4) and (event.ignore & 32):
+                            enemyObjectType = None
+                            if event.ignore & 64:
+                                enemyOwner = state.objects.get(event.targetObjectId)
+                                if enemyOwner is not None:
+                                    enemyObjectType = enemyOwner.objectType
+                            # THROW's color field is a real RGB matching the
+                            # eventual AOE's own color; THROW_PROJECTILE's
+                            # color field instead holds the flying visual
+                            # projectile's own objectType (confirmed: Yeti
+                            # Boulder's objectType, 0x768, for Yeti Bomb) -
+                            # not usable as a color, so it's not passed.
+                            colorHint = event.color if event.effectType == 4 else None
+                            aoeStore.spawnTelegraphIfKnown(event.pos1, event.duration, enemyObjectType,
+                                                            debugger, colorHint)
+                        else:
+                            # Seen but missing a field this app requires to
+                            # even attempt a telegraph lookup - logged
+                            # unconditionally so "no telegraph ever appeared"
+                            # is distinguishable from "no THROW/THROW_PROJECTILE
+                            # was ever sent at all" in debug.txt.
+                            debugger.debug(
+                                f"SHOWEFFECT THROW/THROW_PROJECTILE (effectType={event.effectType}) seen but "
+                                f"skipped (missing pos1/duration): ignore={event.ignore:#04x} "
+                                f"targetObjectId={event.targetObjectId}"
+                            )
+                    elif event.effectType == 26:
+                        # METEOR - unrelated to AOE entirely: a fixed 1-tile
+                        # ground warning, no learned radius/color, no
+                        # hit-detection, just needs to be visible. pos1/
+                        # duration requirement mirrors THROW by analogy
+                        # (unconfirmed via live capture for this effect type
+                        # specifically - adjust if a real capture shows a
+                        # different field layout).
+                        if (event.ignore & 2) and (event.ignore & 4) and (event.ignore & 32):
+                            meteorWarnings.spawn(event.pos1, event.duration)
+                        else:
+                            debugger.debug(
+                                f"SHOWEFFECT METEOR seen but skipped (missing pos1/duration): "
+                                f"ignore={event.ignore:#04x}"
+                            )
+                elif event.type == "AOE":
+                    aoeStore.land(event.pos, event.radius, event.damage, event.effect, event.duration,
+                                   event.origType, event.color, event.armorPierce, debugger)
                 elif event.type == "TEXT":
                     chatPanel.recordIncomingText(ctx, event, listener.objectId)
                 elif event.type == "ACCOUNTLIST":
@@ -490,12 +563,16 @@ def _connectedLoop(stdscr: curses.window, pad: curses.window, ctx: Context) -> S
             checkProjectileHits(projectiles, state, player.objectId, nowMs, outgoingQueue, hitTracker,
                                  targetTracker, debugger)
             checkPlayerHits(projectiles, player.objectId, ticker.pos, outgoingQueue, debugger)
+            checkAoeHits(aoeStore, player, ticker.pos, debugger)
+            pruneExpiredConditions(player)
         hitTracker.pruneTimeouts(debugger)
         projectiles.prune()
+        aoeStore.prune(debugger=debugger)
+        meteorWarnings.prune()
         queueDrainMs = (time.time() - queueDrainStart) * 1000
 
         drawFrameStart = time.time()
-        drawFrame(stdscr, pad, state, player, projectiles, listener, ticker, ctx)
+        drawFrame(stdscr, pad, state, player, projectiles, aoeStore, meteorWarnings, listener, ticker, ctx)
         enemyHealthBar.drawEnemyHealthBar(pad, stdscr, state, targetTracker, nowMs)
         # Panel frame + relocated HUD bars + inventory grid + item-info peek
         # + bottom-panel widget are drawn on top of the same pad drawFrame

@@ -227,6 +227,9 @@ __marimo__/
 # ...and the shipped default keybinds - personal overrides live in the
 # gitignored Credentials/keybinds.json instead, see Utils/json/keybindLoader.py
 !Resources/keybindsDefault.json
+# ...and the self-taught AOE radius/duration cache - shared/committed so
+# accumulated knowledge survives a fresh clone, see Utils/json/aoeRadiusCacheLoader.py
+!Resources/aoeRadiusCache.json
 
 # Personal Claude Code instructions, not shared with the team
 CLAUDE.local.md

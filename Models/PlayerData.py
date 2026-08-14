@@ -33,6 +33,13 @@ class PlayerData:
         self.vit = 0
         self.vitBoost = 0
         self.condition = []
+        # Local-only: effect id -> wall-clock expiry, for AOE status effects
+        # this client applies immediately on hit rather than waiting for the
+        # server's own CONDITIONSTAT (see Renders/GameScreen/hitDetection.py's
+        # checkAoeHits/pruneExpiredConditions). Nothing else in this app
+        # locally expires a condition bit - CONDITIONSTAT is otherwise always
+        # a wholesale server-sent replacement.
+        self.conditionExpiry = {}
         self.hasBackpack = False
         self.backpackSlots = 0
         # 12 base (INVENTORY0..11STAT) + 16 backpack (BACKPACK0..15STAT) -

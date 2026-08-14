@@ -5,8 +5,10 @@ import time
 from typing import Optional, Tuple
 
 from Constants import ColorPairs
+from Models.AoeStore import AoeStore
 from Models.Context import Context, required
 from Models.GameState import GameState
+from Models.MeteorWarningStore import MeteorWarningStore
 from Models.PlayerData import PlayerData
 from Models.ProjectileStore import ProjectileStore
 from Models.TileManager import VIEW_RADIUS_TILES, buildVisibleTiles, getPlayerVisibility, newPerTileIndex
@@ -84,6 +86,8 @@ def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, map
         screenCol0 = mapStartCol + centerCol + dx * scaleX
         pairNum = ColorPairs.MAP_COLOR_TO_PAIR.get(cell.colorName, ColorPairs.MAP_WHITE)
         attr = curses.color_pair(pairNum)
+        if cell.bold:
+            attr |= curses.A_BOLD
         for r in range(scaleY):
             row = screenRow0 + r
             if not (0 <= row < mapAreaRows):
@@ -100,7 +104,8 @@ def _drawMap(pad: curses.window, scaleX: int, scaleY: int, mapAreaRows: int, map
 
 
 def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, player: PlayerData,
-              projectiles: ProjectileStore, listener: Listener, ticker: Ticker, ctx: Context) -> None:
+              projectiles: ProjectileStore, aoeStore: AoeStore, meteorWarnings: MeteorWarningStore,
+              listener: Listener, ticker: Ticker, ctx: Context) -> None:
     """Draws one frame of the map onto the game-screen pad - does NOT blit it
     (gameScreen.py's _connectedLoop draws the panel frame and inventory
     panel on top of this same pad afterward, then blits once at the end -
@@ -138,8 +143,8 @@ def drawFrame(stdscr: curses.window, pad: curses.window, state: GameState, playe
 
     frameStart = time.perf_counter()
     visibleTiles = buildVisibleTiles(
-        state, projectiles, playerTileX, playerTileY, listener.objectId, friendsList, guildMembers, lockedAccounts,
-        rng, charCache, perTileIndex, visibleTilesBuffer, viewRadius, playerVisibility,
+        state, projectiles, aoeStore, meteorWarnings, playerTileX, playerTileY, listener.objectId, friendsList,
+        guildMembers, lockedAccounts, rng, charCache, perTileIndex, visibleTilesBuffer, viewRadius, playerVisibility,
     )
     buildMs = (time.perf_counter() - frameStart) * 1000
 
